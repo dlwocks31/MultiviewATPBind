@@ -20,11 +20,29 @@ $ python atpbind_main.py --model_keys esm-33-gearnet-resiboost-v2 --valid_folds 
 ```
 The resulting performances are written in the result file [`result_cv/result_cv.csv`](result_cv/result_cv.csv).
 
-We also support training on 5 validation folds and different versions of models listed here.
+We also support training on 5 validation folds and different versions of models listed blow.
 To train on multiple validation sets or multiple versions, input the desired settings with separated with `+`;
 ```
 $ python atpbind_main.py --model_keys esm-33+esm-33-gearnet-resiboost-v2 --valid_folds 0+1+2+3+4
 ```
+
+### Supported training models
+
+`esm-t33` : ESM2 model (t33 version: 33layers, 650M params)
+`bert` : ProtBERT model
+`gearnet`: GearNet model
+`bert-gearnet`: ProtBert+GearNet Multi-view model
+`esm-33-gearnet`: ESM2+GearNet Multi-view model
+`esm-t33-ensemble`: ESM2 + Mean Ensemble
+`esm-t33-resiboost`: ESM2 + ResiBoost
+`bert-gearnet-ensemble`: ProtBert+GearNet Multi-view model + Mean Ensemble
+`esm-33-gearnet-ensemble`: ESM2+GearNet Multi-view model + Mean Ensemble
+`esm-33-gearnet-ensemble-rus`: ESM2+GearNet Multi-view model + Random Undersampling
+`esm-33-gearnet-resiboost`: ESM2+GearNet Multi-view model + ResiBoost
+`esm-33-gearnet-resiboost-v1n`
+`esm-33-gearnet-resiboost-v2`
+`esm-33-gearnet-resiboost-n25`
+`esm-33-gearnet-resiboost-ri`: ESM2+GearNet Multi-view model + ResiBoost (random initialization)
 
 
 ## System Requirements
