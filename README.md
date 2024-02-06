@@ -21,9 +21,9 @@ $ python atpbind_main.py --model_keys esm-33-gearnet-resiboost --valid_folds 0
 The resulting performances are written in the result file [`result_cv/result_cv.csv`](result_cv/result_cv.csv).
 
 We also support training on 5 validation folds and different versions of models listed blow.
-To train on multiple validation sets or multiple versions, input the desired settings with separated with `+`;
+To train on multiple validation sets or multiple versions, input the desired settings with separated with space;
 ```
-$ python atpbind_main.py --model_keys esm-33+esm-33-gearnet-resiboost --valid_folds 0+1+2+3+4
+$ python atpbind_main.py --model_keys esm-t33 esm-33-gearnet-resiboost --valid_folds 0 1 2 3 4
 ```
 
 ### Supported training models
