@@ -190,22 +190,3 @@ class NodePropertyPrediction(tasks.Task, core.Configurable):
         fn = (target * (1 - pred)).sum()
         assert(tp + tn + fp + fn == len(pred))
         return tp, tn, fp, fn
-    
-
-class MeanEnsembleNodePropertyPrediction(NodePropertyPrediction):
-    def __init__(self, model, state_dict_files, *args, **kwargs):
-        super().__init__(model, *args, **kwargs)
-        self.state_dict_files = state_dict_files
-    
-    def predict(self, batch, all_loss=None, metric=None):
-        mean_prediction = None
-        for model_file in self.state_dict_files:
-            self.load_state_dict(torch.load(model_file, map_location=self.device), strict=False)
-            current_prediction = super(MeanEnsembleNodePropertyPrediction, self).predict(batch, all_loss, metric)
-            if mean_prediction is None:
-                mean_prediction = current_prediction
-            else:
-                mean_prediction += current_prediction
-        mean_prediction /= len(self.state_dict_files)
-
-        return mean_prediction

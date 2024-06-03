@@ -13,8 +13,8 @@ import pandas as pd
 from datetime import datetime, timedelta
 from statistics import mean
 
-from .tasks import NodePropertyPrediction, MeanEnsembleNodePropertyPrediction
-from .datasets import CUSTOM_DATASET_TYPES, ATPBind3D, CustomBindDataset
+from .tasks import NodePropertyPrediction
+from .datasets import CUSTOM_DATASET_TYPES, ATPBind3D, CustomBindDataset, protein_to_slices
 from .bert import BertWrapModel, EsmWrapModel
 from .custom_models import GearNetWrapModel, LMGearNetModel
 from .utils import dict_tensor_to_num, round_dict
@@ -48,7 +48,7 @@ def get_dataset(dataset, max_length=350):
             [truncuate_transform, protein_view_transform])
 
         limit = -1 if dataset == 'atpbind3d' else 5
-        return ATPBind3D(transform=transform, limit=limit)
+        return ATPBind3D(transform=transform, limit=limit, to_slice=True)
     elif dataset in CUSTOM_DATASET_TYPES:
         truncuate_transform = transforms.TruncateProtein(
             max_length=max_length, random=False)
@@ -153,11 +153,6 @@ class Pipeline:
 
         if task == 'npp':
             self.task = NodePropertyPrediction(
-                self.model,
-                **task_kwargs,
-            )
-        elif task == 'mean-ensemble':
-            self.task = MeanEnsembleNodePropertyPrediction(
                 self.model,
                 **task_kwargs,
             )
@@ -362,3 +357,20 @@ class Pipeline:
     def evaluate(self, split="test", verbose=False, threshold=0):
         self.task.threshold = threshold
         return dict_tensor_to_num(self.solver.evaluate(split=split))
+    
+    def evaluate_with_slicing(self):
+        self.task.eval()
+        test_set = self.test_set
+        PADDING = 50
+        for test_item in test_set:
+            protein = test_item['graph']
+            target = protein.target
+            sliced_proteins, sliced_targets = protein_to_slices(protein, target)
+            intermediate_preds = []
+            for protein in sliced_proteins:
+                pred = self.task.predict(protein).flatten()
+                intermediate_preds.append(pred)
+            final_preds = np.zeros(len(target))
+            
+            
+            

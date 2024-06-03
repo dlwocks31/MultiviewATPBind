@@ -64,18 +64,7 @@ def resiboost_preprocess(pipeline, prev_results, negative_use_ratio, _):
         masks[protein_index_in_dataset][int(row['residue_index'])] = False
     
     pipeline.apply_mask_and_weights(masks=masks)
-    
 
-def esm_33_gearnet_pretrained_pipeline_fn(layer_count=30):
-    def fn(pipeline):
-        weight_file = f'esm_pretrained_fold_{pipeline.valid_fold_num}.pt'
-        pipeline.model.lm.load_state_dict(torch.load(weight_file))
-        print(f'loaded weight from {weight_file}')
-        pipeline.model.freeze_lm(
-            freeze_all=False,
-            freeze_layer_count=32,
-        )
-    return fn
 
 DEBUG = False
 

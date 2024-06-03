@@ -116,6 +116,47 @@ def read_file(path):
     return num_samples, sequences, targets, pdb_ids
 
 
+
+def get_slices(total_length, max_slice_length=550, padding=100):
+    '''
+    Find how to slice a protein of length `total_length` into
+    consecutive slices, each of maximum length `max_slice_length`
+    Two consecutive slices will overlap by `padding` residues.
+    
+    Ex.
+    - get_slices(350) = [(0, 350)] 
+    - get_slices(566) = [(0, 308), (258, 566)]
+    '''
+    cnt = 1
+    while True:
+        if cnt * max_slice_length - (cnt - 1) * padding >= total_length:
+            break
+        cnt += 1
+    
+    slices = []
+    avg_length = (total_length + (cnt - 1) * padding) / cnt
+    for i in range(cnt):
+        start = int(i * (avg_length - padding))
+        end = int(i * (avg_length - padding) + avg_length)
+        slices.append((start, end))
+    return slices
+
+
+def protein_to_slices(protein, targets):
+    '''
+    Slice a protein-target pair into consecutive slices.
+    '''
+    slices = get_slices(protein.num_residue)
+    sliced_proteins = []
+    sliced_targets = []
+    for start, end in slices:
+        masks = [True if start <= i < end else False for i in range(protein.num_residue)]
+        sliced_proteins.append(protein.subresidue(masks))
+        sliced_targets.append(list(np.array(targets)[masks]))
+    return sliced_proteins, sliced_targets
+
+
+
 class ATPBind3D(data.ProteinDataset):
     splits = ["train", "valid", "test"]
     target_fields = ['binding']
@@ -129,7 +170,7 @@ class ATPBind3D(data.ProteinDataset):
 
     fold_count = 5
     
-    def __init__(self, path=None, limit=-1, **kwargs):
+    def __init__(self, path=None, limit=-1, to_slice=False, **kwargs):
         if path is None:
             path = os.path.dirname(__file__)
         self.num_samples = []
@@ -141,9 +182,22 @@ class ATPBind3D(data.ProteinDataset):
         self.targets = defaultdict(list)
         self.targets["binding"] = targets["binding"]
 
+        if to_slice:
+            new_data = []
+            new_targets = []
+            for protein, target in zip(self.data[:self.train_sample_count], self.targets["binding"][:self.train_sample_count]):
+                sliced_proteins, sliced_targets = protein_to_slices(protein, target)
+                new_data += sliced_proteins
+                new_targets += sliced_targets
+            self.data = new_data + self.data[self.train_sample_count:]
+            self.targets["binding"] = new_targets + self.targets["binding"][self.train_sample_count:]
+            self.train_sample_count = len(new_data)
+            
         self.fold_ranges = np.array_split(np.arange(self.train_sample_count), self.fold_count)
-
-        
+        assert(len(self.data) == len(self.targets["binding"]))
+        for protein, binding in zip(self.data, self.targets["binding"]):
+            if protein.num_residue != len(binding):
+                print(f'ERROR: protein: {protein.num_residue}, binding: {len(binding)}')
 
     def initialize_mask_and_weights(self, masks=None, weights=None):
         if masks is not None:
