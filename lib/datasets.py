@@ -6,157 +6,6 @@ from collections import defaultdict
 import numpy as np
 
 
-class ATPBind(data.ProteinDataset):
-    splits = ["train", "valid", "test"]
-    target_fields = ['binding']
-    deny_list = []
-
-    def __init__(self, path=None, limit=-1, verbose=1, valid_ratio=0.1, **kwargs):
-        if path is None:
-            path = os.path.dirname(__file__)
-        self.num_samples = []
-        self.valid_ratio = valid_ratio
-        sequences, targets, _ = self.get_seq_target(path, limit)
-        self.load_sequence(sequences, targets, **kwargs)
-        # [20,21,41]#[350, 38, 41]
-
-    def get_seq_target(self, path, limit):
-        sequences, targets, pdb_ids = [], [], []
-
-        for file in ['train.txt', 'test.txt']:
-            num_samples, seq, tgt, ids = read_file(os.path.join(path, file))
-            # Filter sequences, targets, and pdb_ids based on deny_list
-            filtered_seq, filtered_tgt, filtered_ids = zip(
-                *[(s, t, i) for s, t, i in zip(seq, tgt, ids) if i not in self.deny_list])
-
-            if limit > 0:
-                filtered_seq = filtered_seq[:limit]
-                filtered_tgt = filtered_tgt[:limit]
-                filtered_ids = filtered_ids[:limit]
-
-            sequences += filtered_seq
-            targets += filtered_tgt
-            pdb_ids += filtered_ids
-
-            self.num_samples.append(len(filtered_seq))
-
-        # calculate set lengths
-        total_samples = sum(self.num_samples)
-        val_num = int(total_samples*self.valid_ratio)
-        self.num_samples = [self.num_samples[0] -
-                            val_num, val_num, self.num_samples[1]]
-        print('Split num: ', self.num_samples)
-
-        targets_ = {"binding": targets}
-        return sequences, targets_, pdb_ids
-
-    def get_item(self, index):
-        if self.lazy:
-            graph = data.Protein.from_sequence(
-                self.sequences[index], **self.kwargs)
-        else:
-            graph = self.data[index]
-        with graph.residue():
-            target = torch.as_tensor(
-                self.targets["binding"][index], dtype=torch.long).view(-1, 1)
-            graph.target = target
-            mask = torch.ones_like(target).bool()
-            graph.mask = mask
-        graph.view = 'residue'
-        item = {"graph": graph}
-        if self.transform:
-            item = self.transform(item)
-        return item
-
-    def split(self, keys=None):
-        keys = keys or self.splits
-        offset = 0
-        splits = []
-        for split_name, num_sample in zip(self.splits, self.num_samples):
-            if split_name in keys:
-                split = torch_data.Subset(
-                    self, range(offset, offset + num_sample))
-                splits.append(split)
-            offset += num_sample
-        return splits
-
-
-def read_file(path):
-    '''
-    Read from ATPBind dataset.
-    
-    return:
-        num_samples: number of samples in the file
-        sequences: list of sequences
-        targets: list of targets
-        pdb_ids: list of pdb_ids
-    '''
-    sequences, targets, pdb_ids = [], [], []
-    with open(path) as f:
-        lines = f.readlines()
-        num_samples = len(lines)
-        for line in lines:
-            sequence = line.split(' : ')[-1].strip()
-            sequences.append(sequence)
-
-            target = line.split(' : ')[-2].split(' ')
-            target_indices = []
-            for index in target:
-                target_indices.append(int(index[1:]))
-            target = []
-            for index in range(len(sequence)):
-                if index+1 in target_indices:
-                    target.append(1)
-                else:
-                    target.append(0)
-            targets.append(target)
-
-            pdb_id = line.split(' : ')[0]
-            pdb_ids.append(pdb_id)
-    return num_samples, sequences, targets, pdb_ids
-
-
-
-def get_slices(total_length, max_slice_length=550, padding=100):
-    '''
-    Find how to slice a protein of length `total_length` into
-    consecutive slices, each of maximum length `max_slice_length`
-    Two consecutive slices will overlap by `padding` residues.
-    
-    Ex.
-    - get_slices(350) = [(0, 350)] 
-    - get_slices(566) = [(0, 308), (258, 566)]
-    '''
-    cnt = 1
-    while True:
-        if cnt * max_slice_length - (cnt - 1) * padding >= total_length:
-            break
-        cnt += 1
-    
-    slices = []
-    avg_length = (total_length + (cnt - 1) * padding) / cnt
-    for i in range(cnt):
-        start = int(i * (avg_length - padding))
-        end = int(i * (avg_length - padding) + avg_length)
-        slices.append((start, end))
-    return slices
-
-
-def protein_to_slices(protein, targets):
-    '''
-    Slice a protein-target pair into consecutive slices.
-    '''
-    slices = get_slices(protein.num_residue)
-    sliced_proteins = []
-    sliced_targets = []
-    for start, end in slices:
-        masks = [True if start <= i < end else False for i in range(protein.num_residue)]
-        sliced_proteins.append(protein.subresidue(masks))
-        sliced_targets.append(list(np.array(targets)[masks]))
-    return sliced_proteins, sliced_targets
-
-
-
 class ATPBind3D(data.ProteinDataset):
     splits = ["train", "valid", "test"]
     target_fields = ['binding']
@@ -170,13 +19,13 @@ class ATPBind3D(data.ProteinDataset):
 
     fold_count = 5
     
-    def __init__(self, path=None, limit=-1, to_slice=False, **kwargs):
+    def __init__(self, path=None, limit=-1, to_slice=False, max_slice_length=550, padding=100, **kwargs):
         if path is None:
-            path = os.path.dirname(__file__)
-        self.num_samples = []
-        _, targets, pdb_ids = self.get_seq_target(path, limit)
-        pdb_files = [os.path.join(path, '../data/pdb/%s.pdb' % pdb_id)
-                     for pdb_id in pdb_ids if pdb_id not in self.deny_list]
+            joined_path = os.path.join(os.path.dirname(__file__), '../data/atp')
+            data_path = os.path.normpath(joined_path)
+        _, targets, pdb_ids = self.get_seq_target(data_path, limit)
+        pdb_files = [os.path.join(data_path, f'{pdb_id}.pdb')
+                     for pdb_id in pdb_ids]
 
         self.load_pdbs(pdb_files, **kwargs)
         self.targets = defaultdict(list)
@@ -186,7 +35,12 @@ class ATPBind3D(data.ProteinDataset):
             new_data = []
             new_targets = []
             for protein, target in zip(self.data[:self.train_sample_count], self.targets["binding"][:self.train_sample_count]):
-                sliced_proteins, sliced_targets = protein_to_slices(protein, target)
+                sliced_proteins, sliced_targets = protein_to_slices(
+                    protein, 
+                    target, 
+                    max_slice_length=max_slice_length, 
+                    padding=padding
+                )
                 new_data += sliced_proteins
                 new_targets += sliced_targets
             self.data = new_data + self.data[self.train_sample_count:]
@@ -246,8 +100,7 @@ class ATPBind3D(data.ProteinDataset):
             else:
                 raise NotImplementedError
 
-        targets_ = {"binding": targets}
-        return sequences, targets_, pdb_ids
+        return sequences, {"binding": targets}, pdb_ids
 
 
     def _is_train_set(self, index):
@@ -409,4 +262,77 @@ class CustomBindDataset(data.ProteinDataset):
                 for target in self.targets["binding"]
             ]
         return self
-            
+
+def read_file(path):
+    '''
+    Read from ATPBind dataset.
+    
+    return:
+        num_samples: number of samples in the file
+        sequences: list of sequences
+        targets: list of targets
+        pdb_ids: list of pdb_ids
+    '''
+    sequences, targets, pdb_ids = [], [], []
+    with open(path) as f:
+        lines = f.readlines()
+        num_samples = len(lines)
+        for line in lines:
+            sequence = line.split(' : ')[-1].strip()
+            sequences.append(sequence)
+
+            target = line.split(' : ')[-2].split(' ')
+            target_indices = []
+            for index in target:
+                target_indices.append(int(index[1:]))
+            target = []
+            for index in range(len(sequence)):
+                if index+1 in target_indices:
+                    target.append(1)
+                else:
+                    target.append(0)
+            targets.append(target)
+
+            pdb_id = line.split(' : ')[0]
+            pdb_ids.append(pdb_id)
+    return num_samples, sequences, targets, pdb_ids
+
+
+
+def get_slices(total_length, max_slice_length, padding):
+    '''
+    Find how to slice a protein of length `total_length` into
+    consecutive slices, each of maximum length `max_slice_length`
+    Two consecutive slices will overlap by `padding` residues.
+    
+    Ex.
+    - get_slices(350, 350, 100) = [(0, 350)] 
+    - get_slices(566, 350, 100) = [(0, 308), (258, 566)]
+    '''
+    cnt = 1
+    while True:
+        if cnt * max_slice_length - (cnt - 1) * padding >= total_length:
+            break
+        cnt += 1
+    
+    slices = []
+    avg_length = (total_length + (cnt - 1) * padding) / cnt
+    for i in range(cnt):
+        start = int(i * (avg_length - padding))
+        end = int(i * (avg_length - padding) + avg_length)
+        slices.append((start, end))
+    return slices
+
+
+def protein_to_slices(protein, targets, max_slice_length, padding):
+    '''
+    Slice a protein-target pair into consecutive slices.
+    '''
+    slices = get_slices(protein.num_residue, max_slice_length, padding)
+    sliced_proteins = []
+    sliced_targets = []
+    for start, end in slices:
+        masks = [True if start <= i < end else False for i in range(protein.num_residue)]
+        sliced_proteins.append(protein.subresidue(masks))
+        sliced_targets.append(list(np.array(targets)[masks]))
+    return sliced_proteins, sliced_targets

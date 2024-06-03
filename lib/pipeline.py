@@ -38,17 +38,17 @@ def format_timedelta(td: timedelta) -> str:
 
 
 @cache
-def get_dataset(dataset, max_length=350):
+def get_dataset(dataset, max_length=350, to_slice=True, max_slice_length=550, padding=100):
     print(f'get dataset {dataset}')
-    if dataset == 'atpbind3d' or dataset == 'atpbind3d-minimal':
+    if dataset in ['atpbind3d', 'atpbind3d-minimal']:
         truncuate_transform = transforms.TruncateProtein(
             max_length=max_length, random=False)
         protein_view_transform = transforms.ProteinView(view='residue')
         transform = transforms.Compose(
             [truncuate_transform, protein_view_transform])
 
-        limit = -1 if dataset == 'atpbind3d' else 5
-        return ATPBind3D(transform=transform, limit=limit, to_slice=True)
+        limit = 5 if dataset == 'atpbind3d-minimal' else -1
+        return ATPBind3D(transform=transform, limit=limit, to_slice=to_slice, max_slice_length=max_slice_length, padding=padding)
     elif dataset in CUSTOM_DATASET_TYPES:
         truncuate_transform = transforms.TruncateProtein(
             max_length=max_length, random=False)
@@ -81,8 +81,7 @@ def create_single_pred_dataframe(pipeline, dataset):
     return df
 
 
-METRICS_USING = ("sensitivity", "specificity", "accuracy",
-                 "precision", "mcc", "micro_auroc",)
+METRICS_USING = ("sensitivity", "precision", "mcc", "micro_auprc",)
 
 
 class Pipeline:
@@ -95,21 +94,17 @@ class Pipeline:
                  model,
                  dataset,
                  gpus,
-                 task='npp',
                  model_kwargs={},
                  optimizer_kwargs={},
-                 task_kwargs={},
-                 undersample_kwargs={},
-                 batch_size=1,
-                 bce_weight=1,
-                 verbose=False,
-                 optimizer='adam',
                  scheduler=None,
                  scheduler_kwargs={},
+                 task_kwargs={},
+                 batch_size=1,
+                 verbose=False,
                  valid_fold_num=0,
+                 dataset_args={},
                  max_length=350,
                  num_mlp_layer=2,
-                 discriminative_decay_factor=None,
                  ):
         print(f'init pipeline, model: {model}, dataset: {dataset}, gpus: {gpus}')
         self.gpus = gpus
@@ -124,10 +119,11 @@ class Pipeline:
 
         self.load_model(model, **model_kwargs)
 
-        self.dataset = get_dataset(dataset, max_length=max_length)
+        if dataset_args['max_slice_length']:
+            max_length = max(dataset_args['max_slice_length'], max_length)
+        self.dataset = get_dataset(dataset, max_length=max_length, **dataset_args)
         self.valid_fold_num = valid_fold_num
-        self.train_set, self.valid_set, self.test_set = self.dataset.initialize_mask_and_weights(
-            **undersample_kwargs).split(valid_fold_num=valid_fold_num)
+        self.train_set, self.valid_set, self.test_set = self.dataset.initialize_mask_and_weights().split(valid_fold_num=valid_fold_num)
         print("train samples: %d, valid samples: %d, test samples: %d" %
               (len(self.train_set), len(self.valid_set), len(self.test_set)))
 
@@ -147,40 +143,17 @@ class Pipeline:
             'normalization': False,
             'num_mlp_layer': num_mlp_layer,
             'metric': METRICS_USING,
-            'bce_weight': torch.tensor([bce_weight], device=torch.device(f'cuda:{self.gpus[0]}')),
             **task_kwargs,
         }
 
-        if task == 'npp':
-            self.task = NodePropertyPrediction(
-                self.model,
-                **task_kwargs,
-            )
-        else:
-            raise ValueError(
-                'Task must be one of {}'.format(['npp', 'me_npp']))
-            
+        self.task = NodePropertyPrediction(
+            self.model,
+            **task_kwargs,
+        )
 
-        if not optimizer in ['adam', 'adamw']:
-            raise ValueError(
-                'Optimizer must be one of {}'.format(['adam', 'adamw']))
         # it does't matter whether we use self.task or self.model.parameters(), since mlp is added at preprocess time
         # and mlp parameters is then added to optimizer
-        
-        if model == 'lm-gearnet' and discriminative_decay_factor is not None:
-            print('Adam parameter: discriminative')
-            base_lr = optimizer_kwargs.get('lr', 1e-3)
-            parameters = self.model.get_parameters_with_discriminative_lr(
-                lr=base_lr, lr_decay_factor=discriminative_decay_factor
-            )
-        else:
-            print('Adam parameter: all')
-            parameters = self.model.parameters()
-
-        if optimizer == 'adam':
-            self.optimizer = torch.optim.Adam(parameters, **optimizer_kwargs)
-        elif optimizer == 'adamw':
-            self.optimizer = torch.optim.AdamW(parameters, **optimizer_kwargs)
+        self.optimizer = torch.optim.Adam(self.model.parameters(), **optimizer_kwargs)
 
         if scheduler == 'cyclic':
             print('use cyclic lr scheduler')
@@ -244,14 +217,9 @@ class Pipeline:
     def train(self, num_epoch):
         return self.solver.train(num_epoch=num_epoch)
 
-    def train_until_fit(self, max_epoch=None, patience=1, early_stop_metric='valid_mcc', return_preds=False, return_state_dict=False, use_dynamic_threshold=True):
+    def train_until_fit(self, max_epoch=None, patience=1, use_dynamic_threshold=True):
         from itertools import count
         train_record = []
-        train_preds = None
-        valid_preds = None
-        test_preds = None
-        state_dict = None
-        best_metric = -1
 
         last_time = datetime.now()
         for epoch in count(start=1):
@@ -281,31 +249,12 @@ class Pipeline:
                 cur_time = datetime.now()
                 print(f'{format_timedelta(cur_time - last_time)} {cur_result}')
                 last_time = cur_time
-                # early stop
-                should_replace_best_metric = cur_result['valid_mcc'] > best_metric
-                if should_replace_best_metric:
-                    if return_preds:
-                        best_metric = cur_result['valid_mcc']
-                        train_preds = create_single_pred_dataframe(
-                            self, self.train_set)
-                        valid_preds = create_single_pred_dataframe(
-                            self, self.valid_set)
-                        test_preds = create_single_pred_dataframe(
-                            self, self.test_set)
-                    elif return_state_dict:
-                        state_dict = deepcopy(self.task.state_dict())
-                        
+                
+                # early stop                
                 best_index = np.argmax([record['valid_mcc'] for record in train_record])
                 if best_index < len(train_record) - patience:
                     break
-
-
-        if return_preds:
-            return (train_record, train_preds, valid_preds, test_preds)
-        elif return_state_dict:
-            return (train_record, state_dict)
-        else:
-            return train_record
+        return train_record
 
     def get_last_bce(self):
         from statistics import mean

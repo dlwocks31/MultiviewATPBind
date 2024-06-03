@@ -69,37 +69,6 @@ def resiboost_preprocess(pipeline, prev_results, negative_use_ratio, _):
 DEBUG = False
 
 CYCLE_SIZE = 10
-CYCLIC_SCHEDULER_KWARGS = {
-    'pipeline_kwargs': {
-        'scheduler': 'cyclic',
-        'scheduler_kwargs': {
-            'base_lr': 3e-4,
-            'max_lr': 3e-3,
-            'step_size_up': CYCLE_SIZE / 2,
-            'step_size_down': CYCLE_SIZE / 2,
-            'cycle_momentum': False
-        }
-    },
-    'patience': CYCLE_SIZE,
-    'max_epoch': CYCLE_SIZE,
-    'use_finished_state': True,
-}
-
-CYCLIC_SCHEDULER_KWARGS_BASE_1E3 ={
-    'pipeline_kwargs': {
-        'scheduler': 'cyclic',
-        'scheduler_kwargs': {
-            'base_lr': 1e-3,
-            'max_lr': 3e-3,
-            'step_size_up': CYCLE_SIZE / 2,
-            'step_size_down': CYCLE_SIZE / 2,
-            'cycle_momentum': False
-        }
-    },
-    'patience': CYCLE_SIZE,
-    'max_epoch': CYCLE_SIZE,
-    'use_finished_state': True,
-}
 
 ALL_PARAMS = {
     'esm-t33': {
@@ -108,7 +77,6 @@ ALL_PARAMS = {
             'freeze_esm': False,
             'freeze_layer_count': 30,  
         },
-        **CYCLIC_SCHEDULER_KWARGS,
     },
     'bert': {
         'model': 'bert',
@@ -141,7 +109,6 @@ ALL_PARAMS = {
             'gearnet_hidden_dim_count': 4,
             'lm_freeze_layer_count': 30,
         },
-        **CYCLIC_SCHEDULER_KWARGS,
     },
     'esm-t33-ensemble': {
         'ensemble_count': 10,
@@ -160,7 +127,6 @@ ALL_PARAMS = {
         },
         'negative_use_ratio': 0.5,
         'pipeline_before_train_fn': resiboost_preprocess,
-        **CYCLIC_SCHEDULER_KWARGS,
     },
     'bert-gearnet-ensemble': {
         'ensemble_count': 10,
@@ -181,7 +147,6 @@ ALL_PARAMS = {
             'gearnet_hidden_dim_count': 4,
             'lm_freeze_layer_count': 30,
         },
-        **CYCLIC_SCHEDULER_KWARGS,
     },
     'esm-33-gearnet-ensemble-rus': {
         'ensemble_count': 10,
@@ -207,7 +172,6 @@ ALL_PARAMS = {
         'batch_size': 8,
         'negative_use_ratio': 0.5,
         'pipeline_before_train_fn': resiboost_preprocess,
-        **CYCLIC_SCHEDULER_KWARGS,
     },
 }
 
@@ -239,12 +203,8 @@ def single_run(
     pipeline_before_train_fn=None,
     prev_result=None,
     batch_size=8,
-    max_epoch=None,
-    patience=1 if DEBUG else 5,
     negative_use_ratio=None,
-    pipeline_kwargs={},
     gpu=None,
-    use_finished_state=False,
     prev_weights=None,
 ):
     print(f'batch_size: {batch_size}')
@@ -259,7 +219,14 @@ def single_run(
         },
         valid_fold_num=valid_fold_num,
         batch_size=batch_size,
-        **pipeline_kwargs,
+        scheduler='cyclic',
+        scheduler_kwargs={
+            'base_lr': 3e-4,
+            'max_lr': 3e-3,
+            'step_size_up': CYCLE_SIZE / 2,
+            'step_size_down': CYCLE_SIZE / 2,
+            'cycle_momentum': False
+        }
     )
     
     if pipeline_before_train_fn:
@@ -271,35 +238,23 @@ def single_run(
             print('Using previous result')
             pipeline_before_train_fn(pipeline, prev_result, negative_use_ratio, prev_weights)
     
-    train_record, state_dict = pipeline.train_until_fit(
-        patience=patience,
-        max_epoch=max_epoch,
-        return_state_dict=True
+    train_record = pipeline.train_until_fit(
+        patience=CYCLE_SIZE,
+        max_epoch=CYCLE_SIZE,
     )
-    
-    if use_finished_state:
-        print('Computing dataframe: Using finished state..')
-    else:
-        print('Computing dataframe: Using best state..')
-        pipeline.task.load_state_dict(state_dict)
     
     df_train = create_single_pred_dataframe(pipeline, pipeline.train_set, gpu=gpu)
     df_valid = create_single_pred_dataframe(pipeline, pipeline.valid_set, gpu=gpu)
     df_test = create_single_pred_dataframe(pipeline, pipeline.test_set, gpu=gpu)
     
-    if use_finished_state:
-        best_record_index = -1
-    else:
-        best_record_index = np.argmax([record['valid_mcc'] for record in train_record])
-    
-    best_record = train_record[best_record_index]
-    print(f'single_run done. Best MCC: {best_record["mcc"]}')
+    last_record = train_record[-1]
+    print(f'single_run done. Last MCC: {last_record["mcc"]}')
     return {
         'df_train': df_train,
         'df_valid': df_valid,
         'df_test': df_test,
         'weights': pipeline.dataset.weights,
-        'record': best_record,
+        'record': last_record,
         'full_record': train_record,
     }
 

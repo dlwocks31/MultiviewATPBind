@@ -18,7 +18,6 @@ class NodePropertyPrediction(tasks.Task, core.Configurable):
                  normalization=True, num_class=None, verbose=0,
                  graph_construction_model=None,
                  threshold=-1.5,
-                 bce_weight=1.0,
                  ):
         super(NodePropertyPrediction, self).__init__()
         self.model = model
@@ -31,7 +30,6 @@ class NodePropertyPrediction(tasks.Task, core.Configurable):
         self.verbose = verbose
         self.graph_construction_model = graph_construction_model
         self.threshold = threshold
-        self.bce_weight = bce_weight
 
     def preprocess(self, train_set, valid_set, test_set):
         """
@@ -124,7 +122,7 @@ class NodePropertyPrediction(tasks.Task, core.Configurable):
                 else:
                     loss = F.mse_loss(pred, target, reduction="none")
             elif criterion == "bce":
-                loss = F.binary_cross_entropy_with_logits(pred, target["label"].float(), weight=target["weight"], reduction="none", pos_weight=self.bce_weight)
+                loss = F.binary_cross_entropy_with_logits(pred, target["label"].float(), weight=target["weight"], reduction="none")
             elif criterion == "ce":
                 loss = F.cross_entropy(pred, target["label"], reduction="none")
             else:
