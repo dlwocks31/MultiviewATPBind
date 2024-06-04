@@ -34,6 +34,7 @@ class ATPBind3D(data.ProteinDataset):
         if to_slice:
             new_data = []
             new_targets = []
+            # only slice the training set / validation set. because test set has to be evaluated as a whole
             for protein, target in zip(self.data[:self.train_sample_count], self.targets["binding"][:self.train_sample_count]):
                 sliced_proteins, sliced_targets = protein_to_slices(
                     protein, 

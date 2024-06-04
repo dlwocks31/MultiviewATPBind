@@ -19,6 +19,7 @@ from .bert import BertWrapModel, EsmWrapModel
 from .custom_models import GearNetWrapModel, LMGearNetModel
 from .utils import dict_tensor_to_num, round_dict
 from .lr_scheduler import CyclicLR, ExponentialLR
+from .datasets import get_slices
 
 from timer_cm import Timer
 
@@ -102,7 +103,7 @@ class Pipeline:
                  batch_size=1,
                  verbose=False,
                  valid_fold_num=0,
-                 dataset_args={},
+                 dataset_kwargs={},
                  max_length=350,
                  num_mlp_layer=2,
                  ):
@@ -119,9 +120,14 @@ class Pipeline:
 
         self.load_model(model, **model_kwargs)
 
-        if dataset_args['max_slice_length']:
-            max_length = max(dataset_args['max_slice_length'], max_length)
-        self.dataset = get_dataset(dataset, max_length=max_length, **dataset_args)
+        if dataset_kwargs['max_slice_length'] and dataset_kwargs['padding'] and dataset_kwargs['to_slice']:
+            max_length = max(dataset_kwargs['max_slice_length'], max_length)
+            self.max_slice_length = dataset_kwargs['max_slice_length']
+            self.padding = dataset_kwargs['padding']
+            print(f'get dataset with max_length: {max_length}, kwargs: {dataset_kwargs}')                  
+        else:
+            raise ValueError('Are you sure?')
+        self.dataset = get_dataset(dataset, max_length=max_length, **dataset_kwargs)
         self.valid_fold_num = valid_fold_num
         self.train_set, self.valid_set, self.test_set = self.dataset.initialize_mask_and_weights().split(valid_fold_num=valid_fold_num)
         print("train samples: %d, valid samples: %d, test samples: %d" %
@@ -220,7 +226,6 @@ class Pipeline:
     def train_until_fit(self, max_epoch=None, patience=1, use_dynamic_threshold=True):
         from itertools import count
         train_record = []
-
         last_time = datetime.now()
         for epoch in count(start=1):
             if (max_epoch is not None) and (epoch > max_epoch):
@@ -238,7 +243,8 @@ class Pipeline:
                 else:
                     valid_mcc = self.evaluate(split='valid', threshold=0)['mcc']
                     threshold = 0
-                cur_result = self.evaluate(split='test', threshold=threshold)
+                
+                cur_result = self.evaluate_test_sliced(threshold=threshold)
                 cur_result['valid_mcc'] = valid_mcc
                 cur_result['train_bce'] = self.get_last_bce()
                 cur_result['valid_bce'] = valid_bce
@@ -307,19 +313,56 @@ class Pipeline:
         self.task.threshold = threshold
         return dict_tensor_to_num(self.solver.evaluate(split=split))
     
-    def evaluate_with_slicing(self):
-        self.task.eval()
-        test_set = self.test_set
-        PADDING = 50
-        for test_item in test_set:
-            protein = test_item['graph']
-            target = protein.target
-            sliced_proteins, sliced_targets = protein_to_slices(protein, target)
-            intermediate_preds = []
-            for protein in sliced_proteins:
-                pred = self.task.predict(protein).flatten()
+    def evaluate_test_sliced(self, threshold=0):
+        self.task.threshold = threshold
+        pred, target = self._get_pred_and_target_with_sliced_dataset(self.test_set, self.max_slice_length, self.padding)
+        metric = self.task.evaluate(pred, target)
+        return dict_tensor_to_num(metric)
+    
+    def _get_pred_and_target_with_sliced_dataset(self, data_set, max_slice_length, padding):
+        '''
+        Get pred, target after slicing the protein in datasets
+        Test set is by default not sliced. 
+        (because it has to be evaluated as a whole, unlike train / valid)
+        This function and `_infer_sliced` are used to slice test set and aggregate sliced inference
+        and make it into complete inference regarding the whole, unsliced protein.
+        '''
+        preds = []
+        targets = []
+        for item in data_set:
+            pred = self._infer_sliced(item['graph'], max_slice_length=max_slice_length, padding=padding)
+            preds.append(pred)
+
+            # self.task.target only receives a batch, so we have to wrap it with a dataloader
+            dataloader = data.DataLoader([item], batch_size=1, shuffle=False)    
+            target = self.task.target(next(iter(dataloader)))
+            targets.append(target)
+            
+        pred = utils.cat(preds)
+        target = utils.cat(targets)
+        return pred, target
+    
+    
+    def _infer_sliced(self, protein, max_slice_length=550, padding=100):
+        '''
+        Used by `_get_pred_and_target_with_sliced_dataset` 
+        '''
+        target = protein.target
+        intermediate_preds = []
+        sliced_proteins, _ = protein_to_slices(protein, target, max_slice_length=max_slice_length, padding=padding)
+        dataloader = data.DataLoader(sliced_proteins, batch_size=1, shuffle=False)
+        with torch.no_grad():
+            self.task.eval()
+            for batch in dataloader:
+                batch = utils.cuda(batch, device=torch.device(f'cuda:{self.gpus[0]}'))
+                pred = self.task.predict({"graph": batch})
                 intermediate_preds.append(pred)
-            final_preds = np.zeros(len(target))
+        final_preds = torch.zeros(target.shape)
+        for i, (start, end) in enumerate(get_slices(target.shape[0], max_slice_length=max_slice_length, padding=padding)):
+            final_preds[start:end] += intermediate_preds[i].cpu()
+            if i > 0:
+                final_preds[start:start+padding] /= 2
+        return final_preds
             
             
             

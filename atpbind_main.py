@@ -206,6 +206,8 @@ def single_run(
     negative_use_ratio=None,
     gpu=None,
     prev_weights=None,
+    max_slice_length=550,
+    padding=100,
 ):
     print(f'batch_size: {batch_size}')
     gpu = gpu or GPU
@@ -226,6 +228,11 @@ def single_run(
             'step_size_up': CYCLE_SIZE / 2,
             'step_size_down': CYCLE_SIZE / 2,
             'cycle_momentum': False
+        },
+        dataset_kwargs={
+            'to_slice': True,
+            'max_slice_length': max_slice_length,
+            'padding': padding,
         }
     )
     
@@ -279,8 +286,8 @@ def write_result(model_key,
         {
             'model_key': model_key,
             'valid_fold': valid_fold,
-            **result['record'],
             **additional_record,
+            **result['record'],
             'finished_at': pd.Timestamp.now().strftime('%Y-%m-%d %X'),
         }
     ])])
@@ -317,16 +324,20 @@ def write_result_ensemble(model_key, valid_fold, metric):
     ])])
     record_df.to_csv('result_cv/result_cv.csv', index=False)
 
-def main(model_key, valid_fold):
+def main(model_key, valid_fold, extra_kwargs={}):
     model = ALL_PARAMS[model_key].copy()
     if 'ensemble_count' not in model: # single run model
         result = single_run(
             valid_fold_num=valid_fold,
             **model,
+            **extra_kwargs,
         )
-        write_result(model_key=model_key,
-                     valid_fold=valid_fold,
-                     result=result)
+        write_result(
+            model_key=model_key,
+            valid_fold=valid_fold,
+            result=result,
+            additional_record=extra_kwargs,
+        )
     else:
         results = []
         weights = None
@@ -336,6 +347,7 @@ def main(model_key, valid_fold):
             result = single_run(
                 valid_fold_num=valid_fold,
                 **model,
+                **extra_kwargs,
                 prev_result=results,
                 prev_weights=weights,
             )
@@ -361,9 +373,6 @@ def main(model_key, valid_fold):
             valid_fold=valid_fold,
             metric=me_metric
         )
-        
-                
-
 
 if __name__ == '__main__':
     import argparse
@@ -377,11 +386,18 @@ if __name__ == '__main__':
     print(f'Using default GPU {GPU}')
     print(f'Running model keys {args.model_keys}')
     print(f'Running valid folds {args.valid_folds}')
+    
+    # set this on need
+    extra_kwargs = [{'max_slice_length': slice, 'padding': padding} for slice in [650, 550, 450, 350] for padding in [50, 75, 100, 125]]
+    
     try:
         for model_key in args.model_keys:
             for valid_fold in args.valid_folds:
-                print(f'Running {model_key} fold {valid_fold}')
-                main(model_key=model_key, valid_fold=valid_fold)
+                if not extra_kwargs:
+                    extra_kwargs = [{}]
+                for kwargs in extra_kwargs:
+                    print(f'Running {model_key} fold {valid_fold}, extra_kwargs {kwargs}')
+                    main(model_key=model_key, valid_fold=valid_fold, extra_kwargs=kwargs)
     except KeyboardInterrupt:
         print('Received KeyboardInterrupt. Exit.')
         exit(0)
