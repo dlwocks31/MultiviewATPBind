@@ -388,7 +388,7 @@ if __name__ == '__main__':
     print(f'Running valid folds {args.valid_folds}')
     
     # set this on need
-    extra_kwargs = [{'max_slice_length': slice, 'padding': padding} for slice in [650, 550, 450, 350] for padding in [50, 75, 100, 125]]
+    extra_kwargs = [{'max_slice_length': slice, 'padding': padding} for slice in [250, 300, 400] for padding in [25, 50, 75, 100]]
     
     try:
         for model_key in args.model_keys:
