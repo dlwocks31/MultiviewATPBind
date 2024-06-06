@@ -236,10 +236,11 @@ def ensemble_run(
         df_valids.append(res['df_valid'])
         df_tests.append(res['df_test'])
     
-        df_valid = aggregate_pred_dataframe(dfs=df_valids, apply_sig=True)
-        df_test = aggregate_pred_dataframe(dfs=df_tests, apply_sig=True)
+        apply_sig = False
+        df_valid = aggregate_pred_dataframe(dfs=df_valids, apply_sig=apply_sig)
+        df_test = aggregate_pred_dataframe(dfs=df_tests, apply_sig=apply_sig)
         
-        start, end, step = (0.1, 0.9, 0.01)
+        start, end, step = (-3, 1, 0.1) if apply_sig else (0.1, 0.9, 0.01)
 
         me_metric = generate_mean_ensemble_metrics_auto(
             df_valid=df_valid, df_test=df_test, start=start, end=end, step=step
@@ -255,11 +256,13 @@ def ensemble_run(
         # df_test.to_csv(f'{dataset_type}_{model_ref}_{fold}.csv', index=False)
             
     del me_metric['best_threshold']
-    return me_metric
+    return {
+        "record": me_metric,
+    }
 
 def write_result(model_key, 
                  valid_fold, 
-                 result,
+                 result_dict,
                  write_inference=False,
                  result_file='result_cv/result_cv.csv',
                  additional_record={},
@@ -269,9 +272,9 @@ def write_result(model_key,
     if write_inference:
         folder = f'raw_data/{model_key}/fold_{valid_fold}'
         os.makedirs(folder, exist_ok=True)
-        result['df_train'].to_csv(f'{folder}/train.csv', index=False)
-        result['df_valid'].to_csv(f'{folder}/valid.csv', index=False)
-        result['df_test'].to_csv(f'{folder}/test.csv', index=False)
+        result_dict['df_train'].to_csv(f'{folder}/train.csv', index=False)
+        result_dict['df_valid'].to_csv(f'{folder}/valid.csv', index=False)
+        result_dict['df_test'].to_csv(f'{folder}/test.csv', index=False)
     
     record_df = read_initial_csv(result_file)
     record_df = pd.concat([record_df, pd.DataFrame([
@@ -279,7 +282,7 @@ def write_result(model_key,
             'model_key': model_key,
             'valid_fold': valid_fold,
             **additional_record,
-            **result['record'],
+            **result_dict['record'],
             'finished_at': pd.Timestamp.now().strftime('%Y-%m-%d %X'),
         }
     ])])
@@ -288,7 +291,7 @@ def write_result(model_key,
 def main(dataset, model_key, valid_fold, extra_kwargs={}):
     model = ALL_PARAMS[model_key]
     if 'ensemble_count' not in model: # single run model
-        result = single_run(
+        result_dict = single_run(
             dataset=dataset,
             valid_fold_num=valid_fold,
             **model,
@@ -298,7 +301,7 @@ def main(dataset, model_key, valid_fold, extra_kwargs={}):
         ensemble_count = model['ensemble_count']
         model_ref = model['model_ref']
         pipeline_before_train_fn = model.get('pipeline_before_train_fn', None)
-        result = ensemble_run(
+        result_dict = ensemble_run(
             dataset=dataset,
             ensemble_count=ensemble_count,
             valid_fold_num=valid_fold,
@@ -315,7 +318,7 @@ def main(dataset, model_key, valid_fold, extra_kwargs={}):
     write_result(
         model_key=model_key,
         valid_fold=valid_fold,
-        result=result,
+        result_dict=result_dict,
         additional_record=extra_kwargs,
         result_file=result_file
     )
