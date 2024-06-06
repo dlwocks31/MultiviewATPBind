@@ -118,21 +118,11 @@ ALL_PARAMS = {
     },
     'esm-33-gearnet-ensemble': {
         'ensemble_count': 10,
-        'model_ref': 'lm-gearnet',
-        'model_kwargs': {
-            'lm_type': 'esm-t33',
-            'gearnet_hidden_dim_size': 512,
-            'gearnet_hidden_dim_count': 4,
-            'lm_freeze_layer_count': 30,
-        },
+        'model_ref': 'esm-t33-gearnet',
     },
     'esm-t33-gearnet-adaboost': {
         'ensemble_count': 10,
-        'model_ref': 'esm-t33',
-        'model_kwargs': {
-            'freeze_esm': False,
-            'freeze_layer_count': 30,  
-        },
+        'model_ref': 'esm-t33-gearnet',
         'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=True),
     },
     'esm-33-gearnet-resiboost': {
