@@ -39,28 +39,25 @@ def format_timedelta(td: timedelta) -> str:
 
 
 @cache
-def get_dataset(dataset, max_length=350, to_slice=True, max_slice_length=550, padding=100):
+def get_dataset(dataset, to_slice=True, max_slice_length=550, padding=100):
     print(f'get dataset {dataset}')
     if dataset in ['atpbind3d', 'atpbind3d-minimal']:
-        truncuate_transform = transforms.TruncateProtein(
-            max_length=max_length, random=False)
         protein_view_transform = transforms.ProteinView(view='residue')
-        transform = transforms.Compose(
-            [truncuate_transform, protein_view_transform])
+        transform = transforms.Compose([protein_view_transform])
 
         limit = 5 if dataset == 'atpbind3d-minimal' else -1
         return ATPBind3D(transform=transform, limit=limit, to_slice=to_slice, max_slice_length=max_slice_length, padding=padding)
     elif dataset in CUSTOM_DATASET_TYPES:
-        truncuate_transform = transforms.TruncateProtein(
-            max_length=max_length, random=False)
         protein_view_transform = transforms.ProteinView(view='residue')
-        transform = transforms.Compose(
-            [truncuate_transform, protein_view_transform])
+        transform = transforms.Compose([protein_view_transform])
 
         return CustomBindDataset(transform=transform, dataset_type=dataset)
 
 
-def create_single_pred_dataframe(pipeline, dataset):
+def create_single_pred_dataframe(pipeline, dataset, slice=False, max_slice_length=None, padding=None):
+    if slice and not (max_slice_length and padding):
+        raise ValueError('max_slice_length and padding must be provided when slice is True')
+
     df = pd.DataFrame()
     pipeline.task.eval()
     for protein_index, batch in enumerate(data.DataLoader(dataset, batch_size=1, shuffle=False)):
@@ -73,7 +70,11 @@ def create_single_pred_dataframe(pipeline, dataset):
             'residue_index': list(range(len(label))),
             'target': label.tolist(),
         }
-        pred = pipeline.task.predict(batch).flatten()
+        if slice:
+            protein = batch['graph'].unpack()[0]
+            pred = pipeline.infer_sliced(protein, max_slice_length, padding).flatten()
+        else:
+            pred = pipeline.task.predict(batch).flatten()
         assert (len(label) == len(pred))
         new_data[f'pred'] = [round(t, 5) for t in pred.tolist()]
         new_data = pd.DataFrame(new_data)
@@ -81,6 +82,9 @@ def create_single_pred_dataframe(pipeline, dataset):
 
     return df
 
+
+
+            
 
 METRICS_USING = ("sensitivity", "precision", "mcc", "micro_auprc",)
 
@@ -104,7 +108,6 @@ class Pipeline:
                  verbose=False,
                  valid_fold_num=0,
                  dataset_kwargs={},
-                 max_length=350,
                  num_mlp_layer=2,
                  ):
         print(f'init pipeline, model: {model}, dataset: {dataset}, gpus: {gpus}')
@@ -121,13 +124,12 @@ class Pipeline:
         self.load_model(model, **model_kwargs)
 
         if dataset_kwargs['max_slice_length'] and dataset_kwargs['padding'] and dataset_kwargs['to_slice']:
-            max_length = max(dataset_kwargs['max_slice_length'], max_length)
             self.max_slice_length = dataset_kwargs['max_slice_length']
             self.padding = dataset_kwargs['padding']
-            print(f'get dataset with max_length: {max_length}, kwargs: {dataset_kwargs}')                  
+            print(f'get dataset with kwargs: {dataset_kwargs}')                  
         else:
             raise ValueError('Are you sure?')
-        self.dataset = get_dataset(dataset, max_length=max_length, **dataset_kwargs)
+        self.dataset = get_dataset(dataset, **dataset_kwargs)
         self.valid_fold_num = valid_fold_num
         self.train_set, self.valid_set, self.test_set = self.dataset.initialize_mask_and_weights().split(valid_fold_num=valid_fold_num)
         print("train samples: %d, valid samples: %d, test samples: %d" %
@@ -330,7 +332,7 @@ class Pipeline:
         preds = []
         targets = []
         for item in data_set:
-            pred = self._infer_sliced(item['graph'], max_slice_length=max_slice_length, padding=padding)
+            pred = self.infer_sliced(item['graph'], max_slice_length=max_slice_length, padding=padding)
             preds.append(pred)
 
             # self.task.target only receives a batch, so we have to wrap it with a dataloader
@@ -341,11 +343,11 @@ class Pipeline:
         pred = utils.cat(preds)
         target = utils.cat(targets)
         return pred, target
-    
-    
-    def _infer_sliced(self, protein, max_slice_length=550, padding=100):
+
+    def infer_sliced(self, protein, max_slice_length, padding):
         '''
-        Used by `_get_pred_and_target_with_sliced_dataset` 
+        Given a protein, infer it sliced and combine it together
+        to create a inference regarding the whole protein.
         '''
         target = protein.target
         intermediate_preds = []
@@ -361,8 +363,11 @@ class Pipeline:
         for i, (start, end) in enumerate(get_slices(target.shape[0], max_slice_length=max_slice_length, padding=padding)):
             final_preds[start:end] += intermediate_preds[i].cpu()
             if i > 0:
+                # TODO this is a hacky way to deal with overlapping slices
+                # which assumes that for any point at most two slices overlap
                 final_preds[start:start+padding] /= 2
         return final_preds
-            
+        
+    
             
             
