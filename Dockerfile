@@ -10,6 +10,7 @@ RUN pip install pandas
 RUN pip install -U scikit-learn
 RUN pip install transformers
 
+WORKDIR /src
 COPY data/ ./data/
 COPY lib/ ./lib/
-COPY atpbind_main.py .
+COPY atpbind_main.py ./

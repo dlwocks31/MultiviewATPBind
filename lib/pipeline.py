@@ -1,27 +1,28 @@
-from copy import deepcopy
-from torchdrug import transforms, data, core, layers, tasks, metrics, utils, models
-from torchdrug.layers import functional, geometry
-from torchdrug.core import Registry as R
-import torch
-from torch.utils import data as torch_data
-from torch.nn import functional as F
 import contextlib
 import logging
-import numpy as np
-from functools import cache
-import pandas as pd
+from copy import deepcopy
 from datetime import datetime, timedelta
+from functools import cache
 from statistics import mean
 
-from .tasks import NodePropertyPrediction
-from .datasets import CUSTOM_DATASET_TYPES, ATPBind3D, CustomBindDataset, protein_to_slices
+import numpy as np
+import pandas as pd
+import torch
+from torch.nn import functional as F
+from torch.utils import data as torch_data
+from torchdrug import (core, data, layers, metrics, models, tasks, transforms,
+                       utils)
+from torchdrug.core import Registry as R
+from torchdrug.layers import functional, geometry
+
 from .bert import BertWrapModel, EsmWrapModel
 from .custom_models import GearNetWrapModel, LMGearNetModel
-from .utils import dict_tensor_to_num, round_dict
+from .datasets import (CUSTOM_DATASET_TYPES, ATPBind3D, CustomBindDataset,
+                       get_slices, protein_to_slices)
 from .lr_scheduler import CyclicLR, ExponentialLR
-from .datasets import get_slices
+from .tasks import NodePropertyPrediction
+from .utils import dict_tensor_to_num, round_dict
 
-from timer_cm import Timer
 
 class DisableLogger():
     def __enter__(self):
