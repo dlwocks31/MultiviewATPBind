@@ -39,7 +39,8 @@ def make_resiboost_preprocess_fn(negative_use_ratio, mask_positive=False):
             # larger negative_use_ratio means more negative samples are used in training
             
             # Create a new column for sorting
-            mask_target_df['sort_key'] = mask_target_df.apply(lambda row: 1-row['pred'] if row['target'] == 1 else row['pred'], axis=1)
+            mask_target_df.loc[:, 'sort_key'] = mask_target_df.apply(
+                lambda row: 1-row['pred'] if row['target'] == 1 else row['pred'], axis=1)
 
             # Sort the DataFrame using the new column
             confident_target_df = mask_target_df.sort_values(by='sort_key')[:int(len(mask_target_df) * (1 - negative_use_ratio))]
@@ -188,7 +189,7 @@ def single_run(
     
     last_record = train_record[-1]
     print(f'single_run done. Last MCC: {last_record["mcc"]}')
-    
+
     if return_df:
         df_train = create_single_pred_dataframe(pipeline, pipeline.train_set)
         df_valid = create_single_pred_dataframe(pipeline, pipeline.valid_set)
@@ -306,12 +307,17 @@ def main(dataset, model_key, valid_fold, extra_kwargs={}):
             **extra_kwargs,
         )
 
+    data_folder = os.environ.get('DATA_FOLDER', None)
+    if data_folder is None:
+        result_file = f'raw_data/{dataset}_stats.csv'
+    else:
+        result_file = os.path.join(data_folder, 'raw_data', f'{dataset}_stats.csv')
     write_result(
         model_key=model_key,
         valid_fold=valid_fold,
         result=result,
         additional_record=extra_kwargs,
-        result_file=f'raw_data/{dataset}_stats.csv'
+        result_file=result_file
     )
         
 if __name__ == '__main__':
