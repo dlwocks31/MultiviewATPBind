@@ -240,7 +240,7 @@ def ensemble_run(
         df_valid = aggregate_pred_dataframe(dfs=df_valids, apply_sig=apply_sig)
         df_test = aggregate_pred_dataframe(dfs=df_tests, apply_sig=apply_sig)
         
-        start, end, step = (-3, 1, 0.1) if apply_sig else (0.1, 0.9, 0.01)
+        start, end, step = (0.1, 0.9, 0.01) if apply_sig else (-3, 1, 0.1)
 
         me_metric = generate_mean_ensemble_metrics_auto(
             df_valid=df_valid, df_test=df_test, start=start, end=end, step=step
