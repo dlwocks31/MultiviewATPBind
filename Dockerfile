@@ -1,4 +1,4 @@
-FROM nvidia/cuda:11.7.1-runtime-ubuntu22.04
+FROM --platform=linux/amd64 nvidia/cuda:11.7.1-runtime-ubuntu22.04
 
 RUN apt-get update && apt-get install -y python3.9 python3-pip
 
