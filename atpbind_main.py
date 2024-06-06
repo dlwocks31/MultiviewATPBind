@@ -34,7 +34,7 @@ def make_resiboost_preprocess_fn(negative_use_ratio, mask_positive=False):
             
             final_df = aggregate_pred_dataframe(dfs=df_trains, apply_sig=True)
             
-            mask_target_df = final_df if mask_positive else final_df[final_df['target'] == 0] 
+            mask_target_df = final_df if mask_positive else final_df[final_df['target'] == 0].copy()
             
             # larger negative_use_ratio means more negative samples are used in training
             
