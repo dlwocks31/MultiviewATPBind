@@ -148,6 +148,7 @@ ALL_PARAMS = {
 }
 
 def single_run(
+    dataset,
     valid_fold_num,
     model,
     model_kwargs={},
@@ -159,7 +160,7 @@ def single_run(
 ):
     gpu = gpu or GPU
     pipeline = Pipeline(
-        dataset='atpbind3d-minimal' if DEBUG else 'atpbind3d',
+        dataset=dataset,
         model=model,
         gpus=[gpu],
         model_kwargs={
@@ -215,6 +216,7 @@ def single_run(
 
 
 def ensemble_run(
+    dataset,
     valid_fold_num,
     model_ref,
     ensemble_count,
@@ -228,7 +230,8 @@ def ensemble_run(
     for i in range(ensemble_count):
         print(f'ensemble: {i}')
         res = single_run(
-            gpu = gpu,
+            dataset=dataset,
+            gpu=gpu,
             valid_fold_num=valid_fold_num,
             **ALL_PARAMS[model_ref],
             pipeline_before_train_fn=pipeline_before_train_fn(df_trains) if pipeline_before_train_fn else None,
@@ -270,7 +273,7 @@ def write_result(model_key,
     # write dataframes to result_cv/{model_key}/fold_{valid_fold}/{train | valid | test}.csv
     # aggregate record to result_cv/result_cv.csv
     if write_inference:
-        folder = f'result_cv/{model_key}/fold_{valid_fold}'
+        folder = f'raw_data/{model_key}/fold_{valid_fold}'
         os.makedirs(folder, exist_ok=True)
         result['df_train'].to_csv(f'{folder}/train.csv', index=False)
         result['df_valid'].to_csv(f'{folder}/valid.csv', index=False)
@@ -288,10 +291,11 @@ def write_result(model_key,
     ])])
     record_df.to_csv(result_file, index=False)
 
-def main(model_key, valid_fold, extra_kwargs={}):
+def main(dataset, model_key, valid_fold, extra_kwargs={}):
     model = ALL_PARAMS[model_key]
     if 'ensemble_count' not in model: # single run model
         result = single_run(
+            dataset=dataset,
             valid_fold_num=valid_fold,
             **model,
             **extra_kwargs,
@@ -301,11 +305,13 @@ def main(model_key, valid_fold, extra_kwargs={}):
         model_ref = model['model_ref']
         pipeline_before_train_fn = model.get('pipeline_before_train_fn', default=None)
         result = ensemble_run(
+            dataset=dataset,
             ensemble_count=ensemble_count,
             valid_fold_num=valid_fold,
             model_ref=model_ref,
             pipeline_before_train_fn=pipeline_before_train_fn,
             **extra_kwargs,
+            result_file=f'raw_data/{dataset}_stats.csv'
         )
 
     write_result(
@@ -313,11 +319,13 @@ def main(model_key, valid_fold, extra_kwargs={}):
         valid_fold=valid_fold,
         result=result,
         additional_record=extra_kwargs,
+        
     )
         
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
+    parser.add_argument('--dataset', type=str, nargs='+', default=['atpbind3d'])
     parser.add_argument('--model_keys', type=str, nargs='+', default=['esm-33'])
     parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--valid_folds', type=int, nargs='+', default=[0, 1, 2, 3, 4])
@@ -332,13 +340,14 @@ if __name__ == '__main__':
     extra_kwargs = [{'max_slice_length': i, 'padding': j} for j in [50, 100, 150] for i in [450, 550] ]
     
     try:
-        for model_key in args.model_keys:
-            for valid_fold in args.valid_folds:
-                if not extra_kwargs:
-                    extra_kwargs = [{}]
-                for kwargs in extra_kwargs:
-                    print(f'Running {model_key} fold {valid_fold}, extra_kwargs {kwargs}')
-                    main(model_key=model_key, valid_fold=valid_fold, extra_kwargs=kwargs)
+        for dataset in args.dataset:
+            for model_key in args.model_keys:
+                for valid_fold in args.valid_folds:
+                    if not extra_kwargs:
+                        extra_kwargs = [{}]
+                    for kwargs in extra_kwargs:
+                        print(f'Running {model_key} fold {valid_fold}, extra_kwargs {kwargs}')
+                        main(dataset=dataset, model_key=model_key, valid_fold=valid_fold, extra_kwargs=kwargs)
     except KeyboardInterrupt:
         print('Received KeyboardInterrupt. Exit.')
         exit(0)
