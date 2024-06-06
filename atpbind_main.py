@@ -118,11 +118,11 @@ ALL_PARAMS = {
     },
     'esm-33-gearnet-ensemble': {
         'ensemble_count': 10,
-        'model_ref': 'esm-t33-gearnet',
+        'model_ref': 'esm-33-gearnet',
     },
     'esm-t33-gearnet-adaboost': {
         'ensemble_count': 10,
-        'model_ref': 'esm-t33-gearnet',
+        'model_ref': 'esm-33-gearnet',
         'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=True),
     },
     'esm-33-gearnet-resiboost': {
