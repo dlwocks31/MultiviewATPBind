@@ -136,13 +136,7 @@ ALL_PARAMS = {
     },
     'esm-33-gearnet-resiboost': {
         'ensemble_count': 10,
-        'model_ref': 'lm-gearnet',
-        'model_kwargs': {
-            'lm_type': 'esm-t33',
-            'gearnet_hidden_dim_size': 512,
-            'gearnet_hidden_dim_count': 4,
-            'lm_freeze_layer_count': 30,
-        },
+        'model_ref': 'esm-33-gearnet',
         'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=False),
     },
 }
@@ -154,7 +148,7 @@ def single_run(
     model_kwargs={},
     pipeline_before_train_fn=None,
     gpu=None,
-    max_slice_length=400,
+    max_slice_length=500,
     padding=50,
     return_df=False,
 ):
@@ -195,12 +189,11 @@ def single_run(
     last_record = train_record[-1]
     print(f'single_run done. Last MCC: {last_record["mcc"]}')
     
-    # TODO: why not just return pipeline and let outside calculate this on need?
     if return_df:
-        df_train = create_single_pred_dataframe(pipeline, pipeline.train_set, gpu=gpu)
-        df_valid = create_single_pred_dataframe(pipeline, pipeline.valid_set, gpu=gpu)
+        df_train = create_single_pred_dataframe(pipeline, pipeline.train_set)
+        df_valid = create_single_pred_dataframe(pipeline, pipeline.valid_set)
         df_test = create_single_pred_dataframe(
-            pipeline, pipeline.test_set, gpu=gpu, slice=True, max_slice_length=max_slice_length, padding=padding
+            pipeline, pipeline.test_set, slice=True, max_slice_length=max_slice_length, padding=padding
         )
     else:
         df_train = df_valid = df_test = None
@@ -303,7 +296,7 @@ def main(dataset, model_key, valid_fold, extra_kwargs={}):
     else:
         ensemble_count = model['ensemble_count']
         model_ref = model['model_ref']
-        pipeline_before_train_fn = model.get('pipeline_before_train_fn', default=None)
+        pipeline_before_train_fn = model.get('pipeline_before_train_fn', None)
         result = ensemble_run(
             dataset=dataset,
             ensemble_count=ensemble_count,
@@ -311,7 +304,6 @@ def main(dataset, model_key, valid_fold, extra_kwargs={}):
             model_ref=model_ref,
             pipeline_before_train_fn=pipeline_before_train_fn,
             **extra_kwargs,
-            result_file=f'raw_data/{dataset}_stats.csv'
         )
 
     write_result(
@@ -319,7 +311,7 @@ def main(dataset, model_key, valid_fold, extra_kwargs={}):
         valid_fold=valid_fold,
         result=result,
         additional_record=extra_kwargs,
-        
+        result_file=f'raw_data/{dataset}_stats.csv'
     )
         
 if __name__ == '__main__':
@@ -337,7 +329,7 @@ if __name__ == '__main__':
     print(f'Running valid folds {args.valid_folds}')
     
     # set this on need
-    extra_kwargs = [{'max_slice_length': i, 'padding': j} for j in [50, 100, 150] for i in [450, 550] ]
+    extra_kwargs = []
     
     try:
         for dataset in args.dataset:
@@ -346,7 +338,7 @@ if __name__ == '__main__':
                     if not extra_kwargs:
                         extra_kwargs = [{}]
                     for kwargs in extra_kwargs:
-                        print(f'Running {model_key} fold {valid_fold}, extra_kwargs {kwargs}')
+                        print(f'Running {model_key}, dataset {dataset}, fold {valid_fold}, extra_kwargs {kwargs}')
                         main(dataset=dataset, model_key=model_key, valid_fold=valid_fold, extra_kwargs=kwargs)
     except KeyboardInterrupt:
         print('Received KeyboardInterrupt. Exit.')

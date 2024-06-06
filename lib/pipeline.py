@@ -61,6 +61,8 @@ def create_single_pred_dataframe(pipeline, dataset, slice=False, max_slice_lengt
     df = pd.DataFrame()
     pipeline.task.eval()
     for protein_index, batch in enumerate(data.DataLoader(dataset, batch_size=1, shuffle=False)):
+        # unpack a non-cuda protein beforehand - need one for infer_sliced
+        protein = batch['graph'].unpack()[0]
         batch = utils.cuda(batch, device=torch.device(
             f'cuda:{pipeline.gpus[0]}'))
         label = pipeline.task.target(batch)['label'].flatten()
@@ -71,7 +73,6 @@ def create_single_pred_dataframe(pipeline, dataset, slice=False, max_slice_lengt
             'target': label.tolist(),
         }
         if slice:
-            protein = batch['graph'].unpack()[0]
             pred = pipeline.infer_sliced(protein, max_slice_length, padding).flatten()
         else:
             pred = pipeline.task.predict(batch).flatten()
