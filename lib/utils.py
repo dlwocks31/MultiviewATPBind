@@ -61,7 +61,7 @@ def generate_mean_ensemble_metrics(df, threshold=0):
 
     result = {
         "mcc": mcc,
-        "micro_auroc": auprc,
+        "micro_auprc": auprc,
         "sensitivity": sensitivity,
         "precision": precision,
     }

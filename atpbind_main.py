@@ -277,6 +277,11 @@ def write_result(model_key,
     
     record_df = read_initial_csv(result_file)
     record_dict = round_dict(result_dict['record'], 4)
+    # if there is train_bce and valid_bce, delete record
+    remove_keys = ['train_bce', 'valid_bce']
+    for key in remove_keys:
+        if key in record_dict:
+            del record_dict[key]
     record_df = pd.concat([record_df, pd.DataFrame([
         {
             'model_key': model_key,
