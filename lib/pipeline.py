@@ -254,7 +254,6 @@ class Pipeline:
                 cur_result['valid_bce'] = valid_bce
                 cur_result['best_threshold'] = threshold
                 cur_result = round_dict(cur_result, 4)
-                cur_result['lr'] = round(self.optimizer.param_groups[0]['lr'], 9)
                 train_record.append(cur_result)
                 # logging
                 cur_time = datetime.now()
