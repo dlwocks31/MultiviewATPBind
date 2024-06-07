@@ -41,7 +41,6 @@ def compute_mcc_from_cm(tp, tn, fp, fn):
     return mcc
 
 def generate_mean_ensemble_metrics(df, threshold=0):
-
     # Get the mean prediction
     sum_preds = df[list(filter(lambda a: a.startswith('pred_'), df.columns.tolist()))].mean(axis=1)
 
@@ -53,22 +52,18 @@ def generate_mean_ensemble_metrics(df, threshold=0):
 
     # Calculate metrics
     sensitivity = tp / (tp + fn)
-    specificity = tn / (tn + fp)
-    accuracy = (tp + tn) / (tp + tn + fp + fn)
     precision = tp / (tp + fp)
     mcc = compute_mcc_from_cm(tp, tn, fp, fn)
     
     sum_preds_tensor = torch.tensor(sum_preds.values).float()
     target_tensor = torch.tensor(df['target'].values).float()
-    auroc = metrics.area_under_roc(sum_preds_tensor, target_tensor).item()
+    auprc = metrics.area_under_prc(sum_preds_tensor, target_tensor).item()
 
     result = {
-        "sensitivity": sensitivity,
-        "specificity": specificity,
-        "accuracy": accuracy,
-        "precision": precision,
         "mcc": mcc,
-        "micro_auroc": auroc,
+        "micro_auroc": auprc,
+        "sensitivity": sensitivity,
+        "precision": precision,
     }
     return round_dict(result, 4)
     

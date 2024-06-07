@@ -3,7 +3,7 @@ import pandas as pd
 import os
 import numpy as np
 
-from lib.utils import generate_mean_ensemble_metrics_auto, read_initial_csv, aggregate_pred_dataframe
+from lib.utils import generate_mean_ensemble_metrics_auto, read_initial_csv, aggregate_pred_dataframe, round_dict
 from lib.pipeline import create_single_pred_dataframe
 GPU = 0
 
@@ -245,7 +245,6 @@ def ensemble_run(
         df_test['pred'] = final_prediction
         # df_test.to_csv(f'{dataset_type}_{model_ref}_{fold}.csv', index=False)
             
-    del me_metric['best_threshold']
     return {
         "record": me_metric,
     }
@@ -254,25 +253,26 @@ def write_result(model_key,
                  valid_fold, 
                  result_dict,
                  write_inference=False,
-                 result_file='result_cv/result_cv.csv',
+                 result_file='result/result_cv.csv',
                  additional_record={},
                  ):
-    # write dataframes to result_cv/{model_key}/fold_{valid_fold}/{train | valid | test}.csv
-    # aggregate record to result_cv/result_cv.csv
+    # write dataframes to result/{model_key}/fold_{valid_fold}/{train | valid | test}.csv
+    # aggregate record to result/result_cv.csv
     if write_inference:
-        folder = f'raw_data/{model_key}/fold_{valid_fold}'
+        folder = f'result/{model_key}_detail/fold_{valid_fold}'
         os.makedirs(folder, exist_ok=True)
         result_dict['df_train'].to_csv(f'{folder}/train.csv', index=False)
         result_dict['df_valid'].to_csv(f'{folder}/valid.csv', index=False)
         result_dict['df_test'].to_csv(f'{folder}/test.csv', index=False)
     
     record_df = read_initial_csv(result_file)
+    record_dict = round_dict(result_dict['record'], 4)
     record_df = pd.concat([record_df, pd.DataFrame([
         {
             'model_key': model_key,
             'valid_fold': valid_fold,
             **additional_record,
-            **result_dict['record'],
+            **record_dict,
             'finished_at': pd.Timestamp.now().strftime('%Y-%m-%d %X'),
         }
     ])])
@@ -302,9 +302,9 @@ def main(dataset, model_key, valid_fold, extra_kwargs={}):
 
     data_folder = os.environ.get('DATA_FOLDER', None)
     if data_folder is None:
-        result_file = f'raw_data/{dataset}_stats.csv'
+        result_file = f'result/{dataset}_stats.csv'
     else:
-        result_file = os.path.join(data_folder, 'raw_data', f'{dataset}_stats.csv')
+        result_file = os.path.join(data_folder, 'result', f'{dataset}_stats.csv')
     write_result(
         model_key=model_key,
         valid_fold=valid_fold,

@@ -88,7 +88,7 @@ def create_single_pred_dataframe(pipeline, dataset, slice=False, max_slice_lengt
 
             
 
-METRICS_USING = ("sensitivity", "precision", "mcc", "micro_auprc",)
+METRICS_USING = ("mcc", "micro_auprc", "sensitivity", "precision", )
 
 
 class Pipeline:
@@ -252,6 +252,7 @@ class Pipeline:
                 cur_result['valid_mcc'] = valid_mcc
                 cur_result['train_bce'] = self.get_last_bce()
                 cur_result['valid_bce'] = valid_bce
+                cur_result['best_threshold'] = threshold
                 cur_result = round_dict(cur_result, 4)
                 cur_result['lr'] = round(self.optimizer.param_groups[0]['lr'], 9)
                 train_record.append(cur_result)
