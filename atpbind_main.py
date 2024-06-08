@@ -99,7 +99,7 @@ ALL_PARAMS = {
             'lm_freeze_layer_count': 29,
         },
     },
-    'esm-33-gearnet': {
+    'esm-t33-gearnet': {
         'model': 'lm-gearnet',
         'model_kwargs': {
             'lm_type': 'esm-t33',
@@ -116,29 +116,39 @@ ALL_PARAMS = {
             'freeze_layer_count': 30,  
         },
     },
-    'esm-33-gearnet-ensemble': {
+    'esm-t33-gearnet-ensemble': {
         'ensemble_count': 10,
-        'model_ref': 'esm-33-gearnet',
+        'model_ref': 'esm-t33-gearnet',
     },
     'esm-t33-gearnet-adaboost-r10': {
         'ensemble_count': 10,
-        'model_ref': 'esm-33-gearnet',
+        'model_ref': 'esm-t33-gearnet',
         'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=True),
     },
     'esm-t33-gearnet-adaboost-r20': {
         'ensemble_count': 10,
-        'model_ref': 'esm-33-gearnet',
+        'model_ref': 'esm-t33-gearnet',
         'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.2, mask_positive=True),
     },
-    'esm-33-gearnet-resiboost-r10': {
+    'esm-t33-gearnet-adaboost-r40': {
         'ensemble_count': 10,
-        'model_ref': 'esm-33-gearnet',
+        'model_ref': 'esm-t33-gearnet',
+        'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.4, mask_positive=True),
+    },
+    'esm-t33-gearnet-resiboost-r10': {
+        'ensemble_count': 10,
+        'model_ref': 'esm-t33-gearnet',
         'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=False),
     },
-    'esm-33-gearnet-resiboost-r20': {
+    'esm-t33-gearnet-resiboost-r20': {
         'ensemble_count': 10,
-        'model_ref': 'esm-33-gearnet',
+        'model_ref': 'esm-t33-gearnet',
         'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.2, mask_positive=False),
+    },
+    'esm-t33-gearnet-resiboost-r40': {
+        'ensemble_count': 10,
+        'model_ref': 'esm-t33-gearnet',
+        'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.4, mask_positive=False),
     },
 }
 
@@ -332,7 +342,7 @@ if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', type=str, nargs='+', default=['atpbind3d'])
-    parser.add_argument('--model_keys', type=str, nargs='+', default=['esm-33'])
+    parser.add_argument('--model_keys', type=str, nargs='+', default=['esm-t33'])
     parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--valid_folds', type=int, nargs='+', default=[0, 1, 2, 3, 4])
 
