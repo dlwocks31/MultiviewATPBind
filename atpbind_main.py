@@ -76,6 +76,13 @@ ALL_PARAMS = {
             'freeze_layer_count': 30,  
         },
     },
+    'esm-t36': {
+        'model': 'esm-t36',
+        'model_kwargs': {
+            'freeze_esm': False,
+            'freeze_layer_count': 33,
+        },
+    },
     'bert': {
         'model': 'bert',
         'model_kwargs': {
@@ -106,6 +113,15 @@ ALL_PARAMS = {
             'gearnet_hidden_dim_size': 512,
             'gearnet_hidden_dim_count': 4,
             'lm_freeze_layer_count': 30,
+        },
+    },
+    'esm-t36-gearnet': {
+        'model': 'lm-gearnet',
+        'model_kwargs': {
+            'lm_type': 'esm-t36',
+            'gearnet_hidden_dim_size': 512,
+            'gearnet_hidden_dim_count': 4,
+            'lm_freeze_layer_count': 33,
         },
     },
     'esm-t33-ensemble': {
