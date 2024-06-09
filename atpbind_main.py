@@ -135,6 +135,11 @@ ALL_PARAMS = {
         'model_ref': 'esm-t33-gearnet',
         'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.4, mask_positive=True),
     },
+    'esm-t33-gearnet-adaboost-r50': {
+        'ensemble_count': 10,
+        'model_ref': 'esm-t33-gearnet',
+        'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.5, mask_positive=True),
+    },
     'esm-t33-gearnet-resiboost-r10': {
         'ensemble_count': 10,
         'model_ref': 'esm-t33-gearnet',
@@ -149,6 +154,11 @@ ALL_PARAMS = {
         'ensemble_count': 10,
         'model_ref': 'esm-t33-gearnet',
         'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.4, mask_positive=False),
+    },
+    'esm-t33-gearnet-resiboost-r50': {
+        'ensemble_count': 10,
+        'model_ref': 'esm-t33-gearnet',
+        'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.5, mask_positive=False),
     },
 }
 
