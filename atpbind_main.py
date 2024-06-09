@@ -1,4 +1,5 @@
 from lib.pipeline import Pipeline
+import torch
 import pandas as pd
 import os
 import numpy as np
@@ -62,6 +63,13 @@ def make_resiboost_preprocess_fn(negative_use_ratio, mask_positive=False):
         return resiboost_preprocess
     return make_resiboost_preprocess_traintime_fn
 
+def load_pretrained_fn(path):
+    def load_pretrained(pipeline):
+        load_path = get_data_path(path)
+        print(f'Loading weight from {load_path}')
+        pipeline.task.load_state_dict(torch.load(load_path), strict=True)
+        print('Done loading weight')
+    return load_pretrained
 
 DEBUG = False
 WRITE_DF = False
@@ -76,11 +84,19 @@ ALL_PARAMS = {
             'freeze_layer_count': 30,  
         },
     },
+    'esm-t33-pretrained': {
+        'model': 'esm-t33',
+        'model_kwargs': {
+            'freeze_esm': False,
+            'freeze_layer_count': 30,
+        },
+        'pipeline_before_train_fn': load_pretrained_fn('weight/atpbind3d_esm-t33_1.pt'),
+    },
     'esm-t36': {
         'model': 'esm-t36',
         'model_kwargs': {
             'freeze_esm': False,
-            'freeze_layer_count': 33,
+            'freeze_layer_count': 35,
         },
     },
     'bert': {
@@ -115,13 +131,23 @@ ALL_PARAMS = {
             'lm_freeze_layer_count': 30,
         },
     },
+    'esm-t33-gearnet-pretrained': {
+        'model': 'lm-gearnet',
+        'model_kwargs': {
+            'lm_type': 'esm-t33',
+            'gearnet_hidden_dim_size': 512,
+            'gearnet_hidden_dim_count': 4,
+            'lm_freeze_layer_count': 30,
+        },
+        'pipeline_before_train_fn': load_pretrained_fn('weight/atpbind3d_lm-gearnet_1.pt'),
+    },
     'esm-t36-gearnet': {
         'model': 'lm-gearnet',
         'model_kwargs': {
             'lm_type': 'esm-t36',
             'gearnet_hidden_dim_size': 512,
             'gearnet_hidden_dim_count': 4,
-            'lm_freeze_layer_count': 33,
+            'lm_freeze_layer_count': 35,
         },
     },
     'esm-t33-ensemble': {
@@ -178,6 +204,14 @@ ALL_PARAMS = {
     },
 }
 
+
+def get_data_path(path):
+    data_folder = os.environ.get('DATA_FOLDER', None)
+    if data_folder is None:
+        return path
+    return os.path.join(data_folder, path)
+
+
 def single_run(
     dataset,
     valid_fold_num,
@@ -188,6 +222,7 @@ def single_run(
     max_slice_length=500,
     padding=50,
     return_df=False,
+    save_weight=False,
 ):
     gpu = gpu or GPU
     pipeline = Pipeline(
@@ -234,6 +269,11 @@ def single_run(
         )
     else:
         df_train = df_valid = df_test = None
+    
+    if save_weight:
+        print(f'Saving weight to weight/{dataset}_{model}_{valid_fold_num}.pt')
+        torch.save(pipeline.task.state_dict(), f'weight/{dataset}_{model}_{valid_fold_num}.pt')
+        print('Done saving weight')
 
     return {
         'df_train': df_train,
@@ -329,16 +369,20 @@ def write_result(model_key,
     ])])
     record_df.to_csv(result_file, index=False)
 
-def main(dataset, model_key, valid_fold, extra_kwargs={}):
+
+def main(dataset, model_key, valid_fold, extra_kwargs={}, save_weight=False):
     model = ALL_PARAMS[model_key]
     if 'ensemble_count' not in model: # single run model
         result_dict = single_run(
             dataset=dataset,
             valid_fold_num=valid_fold,
+            save_weight=save_weight,
             **model,
             **extra_kwargs,
         )
     else:
+        if save_weight:
+            raise NotImplementedError('save_weight is not implemented for ensemble run')
         ensemble_count = model['ensemble_count']
         model_ref = model['model_ref']
         pipeline_before_train_fn = model.get('pipeline_before_train_fn', None)
@@ -350,12 +394,9 @@ def main(dataset, model_key, valid_fold, extra_kwargs={}):
             pipeline_before_train_fn=pipeline_before_train_fn,
             **extra_kwargs,
         )
-
-    data_folder = os.environ.get('DATA_FOLDER', None)
-    if data_folder is None:
-        result_file = f'result/{dataset}_stats.csv'
-    else:
-        result_file = os.path.join(data_folder, 'result', f'{dataset}_stats.csv')
+    
+    result_file = get_data_path(f'result/{dataset}_stats.csv')
+    
     write_result(
         model_key=model_key,
         valid_fold=valid_fold,
@@ -371,6 +412,7 @@ if __name__ == '__main__':
     parser.add_argument('--model_keys', type=str, nargs='+', default=['esm-t33'])
     parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--valid_folds', type=int, nargs='+', default=[0, 1, 2, 3, 4])
+    parser.add_argument('--save_weight', action='store_true')
 
     args = parser.parse_args()
     GPU = args.gpu
@@ -389,7 +431,10 @@ if __name__ == '__main__':
                         extra_kwargs = [{}]
                     for kwargs in extra_kwargs:
                         print(f'Running {model_key}, dataset {dataset}, fold {valid_fold}, extra_kwargs {kwargs}')
-                        main(dataset=dataset, model_key=model_key, valid_fold=valid_fold, extra_kwargs=kwargs)
+                        main(
+                            dataset=dataset, model_key=model_key, valid_fold=valid_fold, extra_kwargs=kwargs,
+                            save_weight=args.save_weight,
+                            )
     except KeyboardInterrupt:
         print('Received KeyboardInterrupt. Exit.')
         exit(0)
