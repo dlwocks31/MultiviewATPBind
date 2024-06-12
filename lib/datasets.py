@@ -6,6 +6,31 @@ from collections import defaultdict
 import numpy as np
 
 
+class ATPBindTestEsm(data.ProteinDataset):
+    def __init__(self, **kwargs):
+        pdb_path = os.path.normpath(os.path.join(os.path.dirname(__file__), '../data/atp-esm'))
+        target_path = os.path.normpath(os.path.join(os.path.dirname(__file__), '../data/atp'))
+        
+        num_samples, sequences, targets, pdb_ids = read_file(os.path.join(target_path, 'test.txt'))
+        self.test_sample_count = num_samples
+        
+        pdb_files = [os.path.join(pdb_path, f'{pdb_id}.pdb')
+                        for pdb_id in pdb_ids]
+        
+        self.load_pdbs(pdb_files, **kwargs)
+        self.targets = defaultdict(list)
+        self.targets["binding"] = targets
+        
+        print(f'ATPBindTestEsm: loaded {len(self.data)} proteins')
+        print(f'ATPBindTestEsm: loaded {len(self.targets["binding"])} targets')
+        assert(len(self.data) == len(self.targets["binding"]))
+        
+        # do not do slicing, because it is test set and should be evaluated as a whole
+        for protein, binding in zip(self.data, self.targets["binding"]):
+            if protein.num_residue != len(binding):
+                print(f'ERROR: protein: {protein.num_residue}, binding: {len(binding)}')
+
+
 class ATPBind3D(data.ProteinDataset):
     splits = ["train", "valid", "test"]
     target_fields = ['binding']

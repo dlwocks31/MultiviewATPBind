@@ -6,8 +6,6 @@ import numpy as np
 
 from lib.utils import generate_mean_ensemble_metrics_auto, read_initial_csv, aggregate_pred_dataframe, round_dict
 from lib.pipeline import create_single_pred_dataframe
-GPU = 0
-
 
 
 def sigmoid(x):
@@ -99,6 +97,13 @@ ALL_PARAMS = {
             'freeze_layer_count': 35,
         },
     },
+    'esm-t30': {
+        'model': 'esm-t30',
+        'model_kwargs': {
+            'freeze_esm': False,
+            'freeze_layer_count': 27,
+        },
+    },
     'bert': {
         'model': 'bert',
         'model_kwargs': {
@@ -150,6 +155,15 @@ ALL_PARAMS = {
             'lm_freeze_layer_count': 35,
         },
     },
+    'esm-t30-gearnet': {
+        'model': 'lm-gearnet',
+        'model_kwargs': {
+            'lm_type': 'esm-t30',
+            'gearnet_hidden_dim_size': 512,
+            'gearnet_hidden_dim_count': 4,
+            'lm_freeze_layer_count': 27,
+        },
+    },
     'esm-t33-ensemble': {
         'ensemble_count': 10,
         'model': 'esm-t33',
@@ -162,45 +176,29 @@ ALL_PARAMS = {
         'ensemble_count': 10,
         'model_ref': 'esm-t33-gearnet',
     },
+    'esm-t33-gearnet-pretrained-ensemble': {
+        'ensemble_count': 10,
+        'model_ref': 'esm-t33-gearnet-pretrained',
+    },
     'esm-t33-gearnet-adaboost-r10': {
         'ensemble_count': 10,
         'model_ref': 'esm-t33-gearnet',
         'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=True),
     },
-    'esm-t33-gearnet-adaboost-r20': {
+    'esm-t33-gearnet-pretrained-adaboost-r10': {
         'ensemble_count': 10,
-        'model_ref': 'esm-t33-gearnet',
-        'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.2, mask_positive=True),
-    },
-    'esm-t33-gearnet-adaboost-r40': {
-        'ensemble_count': 10,
-        'model_ref': 'esm-t33-gearnet',
-        'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.4, mask_positive=True),
-    },
-    'esm-t33-gearnet-adaboost-r50': {
-        'ensemble_count': 10,
-        'model_ref': 'esm-t33-gearnet',
-        'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.5, mask_positive=True),
+        'model_ref': 'esm-t33-gearnet-pretrained',
+        'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=True),
     },
     'esm-t33-gearnet-resiboost-r10': {
         'ensemble_count': 10,
         'model_ref': 'esm-t33-gearnet',
         'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=False),
     },
-    'esm-t33-gearnet-resiboost-r20': {
+    'esm-t33-gearnet-pretrained-resiboost-r10': {
         'ensemble_count': 10,
-        'model_ref': 'esm-t33-gearnet',
-        'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.2, mask_positive=False),
-    },
-    'esm-t33-gearnet-resiboost-r40': {
-        'ensemble_count': 10,
-        'model_ref': 'esm-t33-gearnet',
-        'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.4, mask_positive=False),
-    },
-    'esm-t33-gearnet-resiboost-r50': {
-        'ensemble_count': 10,
-        'model_ref': 'esm-t33-gearnet',
-        'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.5, mask_positive=False),
+        'model_ref': 'esm-t33-gearnet-pretrained',
+        'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=False),
     },
 }
 
@@ -224,7 +222,6 @@ def single_run(
     return_df=False,
     save_weight=False,
 ):
-    gpu = gpu or GPU
     pipeline = Pipeline(
         dataset=dataset,
         model=model,
@@ -234,7 +231,7 @@ def single_run(
             **model_kwargs,
         },
         valid_fold_num=valid_fold_num,
-        batch_size=8, # TODO adjust on different dataset
+        batch_size=8 if dataset == 'atpbind3d' else 2,
         scheduler='cyclic',
         scheduler_kwargs={
             'base_lr': 3e-4,
@@ -282,6 +279,7 @@ def single_run(
         'weights': pipeline.dataset.weights,
         'record': last_record,
         'full_record': train_record,
+        'pipeline': pipeline,
     }
 
 
@@ -292,22 +290,37 @@ def ensemble_run(
     ensemble_count,
     gpu=None,
     pipeline_before_train_fn=None,
+    save_weight=False,
+    original_model_key=None,
     extra_kwargs={},
 ):
     df_trains = []
     df_valids = []
     df_tests = []
     for i in range(ensemble_count):
-        print(f'ensemble: {i}')
+        pipeline_before_train_fn_ls = [
+            ALL_PARAMS[model_ref].get('pipeline_before_train_fn', None), # fn for single run (ex. load pretrained weight)
+            pipeline_before_train_fn(df_trains) if pipeline_before_train_fn else None, # fn for ensemble run (ex. set resiboost mask)
+        ]
+        pipeline_before_train_fn_ls = [i for i in pipeline_before_train_fn_ls if i]
+        
+        # remove pipeline_before_train_fn from single_run kwargs to remove possible duplicate
+        all_params = ALL_PARAMS[model_ref].copy()
+        if 'pipeline_before_train_fn' in all_params:
+            del all_params['pipeline_before_train_fn']
         res = single_run(
             dataset=dataset,
             gpu=gpu,
             valid_fold_num=valid_fold_num,
-            **ALL_PARAMS[model_ref],
-            pipeline_before_train_fn=pipeline_before_train_fn(df_trains) if pipeline_before_train_fn else None,
+            **all_params,
+            pipeline_before_train_fn=lambda pipeline: [fn(pipeline) for fn in pipeline_before_train_fn_ls],
             return_df=True,
             **extra_kwargs,
         )
+        if save_weight:
+            print(f'Saving weight to weight/{dataset}_{model_ref}_{valid_fold_num}_{i}.pt')
+            torch.save(res['pipeline'].task.state_dict(), f'weight/{dataset}_{original_model_key}_{valid_fold_num}_{i}.pt')
+            print('Done saving weight')
         df_trains.append(res['df_train'])
         df_valids.append(res['df_valid'])
         df_tests.append(res['df_test'])
@@ -381,17 +394,17 @@ def main(dataset, model_key, valid_fold, extra_kwargs={}, save_weight=False):
             **extra_kwargs,
         )
     else:
-        if save_weight:
-            raise NotImplementedError('save_weight is not implemented for ensemble run')
         ensemble_count = model['ensemble_count']
         model_ref = model['model_ref']
         pipeline_before_train_fn = model.get('pipeline_before_train_fn', None)
         result_dict = ensemble_run(
             dataset=dataset,
+            original_model_key=model_key,
             ensemble_count=ensemble_count,
             valid_fold_num=valid_fold,
             model_ref=model_ref,
             pipeline_before_train_fn=pipeline_before_train_fn,
+            save_weight=save_weight,
             **extra_kwargs,
         )
     
@@ -415,8 +428,7 @@ if __name__ == '__main__':
     parser.add_argument('--save_weight', action='store_true')
 
     args = parser.parse_args()
-    GPU = args.gpu
-    print(f'Using default GPU {GPU}')
+    print(f'Using default GPU {args.gpu}')
     print(f'Running model keys {args.model_keys}')
     print(f'Running valid folds {args.valid_folds}')
     
