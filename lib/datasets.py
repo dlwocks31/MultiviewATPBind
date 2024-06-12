@@ -30,6 +30,37 @@ class ATPBindTestEsm(data.ProteinDataset):
             if protein.num_residue != len(binding):
                 print(f'ERROR: protein: {protein.num_residue}, binding: {len(binding)}')
 
+    def get_item(self, index):
+        if self.lazy:
+            graph = data.Protein.from_sequence(
+                self.sequences[index], **self.kwargs)
+        else:
+            graph = self.data[index]
+
+        with graph.residue():
+            target = torch.as_tensor(
+                self.targets["binding"][index], dtype=torch.long).view(-1, 1)
+            graph.target = target
+            graph.mask = torch.ones(len(target)).bool().view(-1, 1)
+            graph.weight = torch.ones(len(target)).float().view(-1, 1)
+        graph.view = 'residue'
+        item = {"graph": graph}
+        if self.transform:
+            item = self.transform(item)
+        return item
+    
+    def initialize_mask_and_weights(self, _=None, __=None):
+        return self
+    
+    
+    def split(self, valid_fold_num=0):
+        splits = [
+            torch_data.Subset(self, [0]),  # train
+            torch_data.Subset(self, [0]),  # valid
+            torch_data.Subset(self, list(range(self.test_sample_count))),  # test
+        ]
+        return splits
+    
 
 class ATPBind3D(data.ProteinDataset):
     splits = ["train", "valid", "test"]

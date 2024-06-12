@@ -17,7 +17,7 @@ from torchdrug.layers import functional, geometry
 
 from .bert import BertWrapModel, EsmWrapModel
 from .custom_models import GearNetWrapModel, LMGearNetModel
-from .datasets import (CUSTOM_DATASET_TYPES, ATPBind3D, CustomBindDataset,
+from .datasets import (CUSTOM_DATASET_TYPES, ATPBind3D, CustomBindDataset, ATPBindTestEsm,
                        get_slices, protein_to_slices)
 from .lr_scheduler import CyclicLR, ExponentialLR
 from .tasks import NodePropertyPrediction
@@ -48,11 +48,15 @@ def get_dataset(dataset, to_slice=True, max_slice_length=550, padding=100):
 
         limit = 5 if dataset == 'atpbind3d-minimal' else -1
         return ATPBind3D(transform=transform, limit=limit, to_slice=to_slice, max_slice_length=max_slice_length, padding=padding)
+    elif dataset in ['atpbind3d-esm']:
+        return ATPBindTestEsm()
     elif dataset in CUSTOM_DATASET_TYPES:
         protein_view_transform = transforms.ProteinView(view='residue')
         transform = transforms.Compose([protein_view_transform])
 
         return CustomBindDataset(transform=transform, dataset_type=dataset)
+    else:
+        raise ValueError('Dataset is not supported')
 
 
 def create_single_pred_dataframe(pipeline, dataset, slice=False, max_slice_length=None, padding=None):
@@ -88,13 +92,12 @@ def create_single_pred_dataframe(pipeline, dataset, slice=False, max_slice_lengt
 
             
 
-METRICS_USING = ("mcc", "micro_auprc", "sensitivity", "precision", )
+METRICS_USING = ("mcc", "micro_auprc", "sensitivity", "precision", "micro_auroc")
 
 
 class Pipeline:
     possible_models = ['bert', 'gearnet', 'lm-gearnet',
                        'cnn', 'esm-t6', 'esm-t12', 'esm-t30', 'esm-t33', 'esm-t36', 'esm-t48']
-    possible_datasets = ['atpbind', 'atpbind3d', 'atpbind3d-minimal'] + CUSTOM_DATASET_TYPES
     threshold = 0
 
     def __init__(self,
@@ -118,10 +121,6 @@ class Pipeline:
         if model not in self.possible_models and not isinstance(model, torch.nn.Module):
             raise ValueError(
                 'Model must be one of {}, or is torch.nn.Module'.format(self.possible_models))
-
-        if dataset not in self.possible_datasets:
-            raise ValueError('Dataset must be one of {}'.format(
-                self.possible_datasets))
 
         self.load_model(model, **model_kwargs)
 

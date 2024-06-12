@@ -7,6 +7,7 @@ import numpy as np
 from lib.utils import generate_mean_ensemble_metrics_auto, read_initial_csv, aggregate_pred_dataframe, round_dict
 from lib.pipeline import create_single_pred_dataframe
 
+GPU = 0
 
 def sigmoid(x):
     return 1 / (1 + np.exp(-x))
@@ -222,6 +223,7 @@ def single_run(
     return_df=False,
     save_weight=False,
 ):
+    gpu = gpu or GPU
     pipeline = Pipeline(
         dataset=dataset,
         model=model,
@@ -428,6 +430,7 @@ if __name__ == '__main__':
     parser.add_argument('--save_weight', action='store_true')
 
     args = parser.parse_args()
+    GPU = args.gpu
     print(f'Using default GPU {args.gpu}')
     print(f'Running model keys {args.model_keys}')
     print(f'Running valid folds {args.valid_folds}')
