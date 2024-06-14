@@ -68,9 +68,7 @@ class ATPBind3D(data.ProteinDataset):
     # see `generate_pdb.py`
     # also, 4TU0A includes two alpha carbon that would not be parsed with torchprotein (number 7 / 128)
     # This is probably because non-standard pdb file, or non-standard torchprotein parser
-    deny_list = ['3CRCA', '2C7EG', '3J2TB', '3VNUA',
-                 '4QREA', '5J1SB', '1MABB', '3LEVH', '3BG5A',
-                 '4TU0A',
+    deny_list = [
                  ]
 
     fold_count = 5

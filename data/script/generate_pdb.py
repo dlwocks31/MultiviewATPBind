@@ -30,6 +30,12 @@ class ChainSelect(Select):
         # Should only accept backbone atoms
         # to get backbone atom: ["N", "CA", "C", "O"]
         return atom.get_name() in ["CA"]
+        
+        # if (not atom.is_disordered()) or atom.get_altloc() == "A":
+        #     atom.set_altloc(" ")  # Eliminate alt location ID before output.
+        #     return True
+        # else:  # Alt location was not one to be output.
+        #     return False
 
 
 class LCSSelect(Select):
@@ -145,7 +151,7 @@ def validate(base_path, filename):
         file_path = os.path.join(base_path, '%s.pdb' % pdb_id)
         protein = try_loading_pdb(file_path)
         if not protein:
-            continue
+            raise Exception('Error loading %s' % file_path)
         
         # Get sequence from protein after graph construction model leaving only alpha carbon nodes
         graph_construction_model = layers.GraphConstruction(
@@ -167,7 +173,10 @@ def validate(base_path, filename):
         if protein_sequence != sequence:
             print('validation failed for %s: sequence unmatch. length of alphacarbons: %d, length of given sequence: %d' %
                   (pdb_id, len(protein_sequence), len(sequence)))
+            print('sequence from protein')
             print(protein_sequence)
+            print('seqeuence from txt')
+            print(sequence)
         elif protein.num_residue != len(sequence):
             print('validation failed for %s: length unmatch. len: %d %d' %
                   (pdb_id, protein.num_residue, len(sequence)))
@@ -291,6 +300,9 @@ if __name__ == '__main__':
     # print('Shuffling..')
     # base_path = os.path.join(os.path.dirname(__file__), f'../{dataset_type}/{dataset_type}_binding.txt')
     # shuffle_lines(base_path)
+    
+    # genreate
+    # generate_all_in_file('../atp/train.txt', 'atp')
     
     # validate:
     base_path = os.path.join(os.path.dirname(__file__), f'../atp')
