@@ -318,11 +318,12 @@ class Pipeline:
     
     def evaluate_test_sliced(self, threshold=0):
         self.task.threshold = threshold
-        pred, target = self._get_pred_and_target_with_sliced_dataset(self.test_set, self.max_slice_length, self.padding)
+        pred, target = self.predict_and_target_dataset(
+            self.test_set, self.max_slice_length, self.padding)
         metric = self.task.evaluate(pred, target)
         return dict_tensor_to_num(metric)
     
-    def _get_pred_and_target_with_sliced_dataset(self, data_set, max_slice_length, padding):
+    def predict_and_target_dataset(self, data_set, max_slice_length, padding):
         '''
         Get pred, target after slicing the protein in datasets
         Test set is by default not sliced. 

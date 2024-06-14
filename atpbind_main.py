@@ -211,6 +211,11 @@ def get_data_path(path):
     return os.path.join(data_folder, path)
 
 
+def clear_cache():
+    import gc
+    gc.collect()
+    torch.cuda.empty_cache()
+
 def single_run(
     dataset,
     valid_fold_num,
@@ -223,6 +228,7 @@ def single_run(
     return_df=False,
     save_weight=False,
 ):
+    clear_cache()
     gpu = gpu or GPU
     pipeline = Pipeline(
         dataset=dataset,
