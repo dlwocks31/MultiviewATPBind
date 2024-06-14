@@ -1,6 +1,7 @@
 import torch
 from torch.utils import data as torch_data
 from torchdrug import data
+from random import Random
 import os
 from collections import defaultdict
 import numpy as np
@@ -64,7 +65,6 @@ class ATPBindTestEsm(data.ProteinDataset):
 
 class ATPBind3D(data.ProteinDataset):
     splits = ["train", "valid", "test"]
-    target_fields = ['binding']
     # see `generate_pdb.py`
     # also, 4TU0A includes two alpha carbon that would not be parsed with torchprotein (number 7 / 128)
     # This is probably because non-standard pdb file, or non-standard torchprotein parser
@@ -75,7 +75,7 @@ class ATPBind3D(data.ProteinDataset):
 
     fold_count = 5
     
-    def __init__(self, path=None, limit=-1, to_slice=False, max_slice_length=550, padding=100, **kwargs):
+    def __init__(self, path=None, limit=-1, to_slice=False, max_slice_length=500, padding=50, **kwargs):
         if path is None:
             joined_path = os.path.join(os.path.dirname(__file__), '../data/atp')
             data_path = os.path.normpath(joined_path)
@@ -86,6 +86,12 @@ class ATPBind3D(data.ProteinDataset):
         self.load_pdbs(pdb_files, **kwargs)
         self.targets = defaultdict(list)
         self.targets["binding"] = targets["binding"]
+
+        assert (len(self.data) == len(self.targets["binding"]))
+        for protein, binding in zip(self.data, self.targets["binding"]):
+            if protein.num_residue != len(binding):
+                print(
+                    f'ERROR: protein: {protein.num_residue}, binding: {len(binding)}')
 
         if to_slice:
             new_data = []
@@ -105,10 +111,7 @@ class ATPBind3D(data.ProteinDataset):
             self.train_sample_count = len(new_data)
             
         self.fold_ranges = np.array_split(np.arange(self.train_sample_count), self.fold_count)
-        assert(len(self.data) == len(self.targets["binding"]))
-        for protein, binding in zip(self.data, self.targets["binding"]):
-            if protein.num_residue != len(binding):
-                print(f'ERROR: protein: {protein.num_residue}, binding: {len(binding)}')
+
 
     def initialize_mask_and_weights(self, masks=None, weights=None):
         if masks is not None:
@@ -220,7 +223,7 @@ class CustomBindDataset(data.ProteinDataset):
     splits = ['train', 'valid', 'test']
     fold_count = 5
     
-    def __init__(self, dataset_type='imatinib', **kwargs):
+    def __init__(self, dataset_type='imatinib', to_slice=False, max_slice_length=500, padding=50, **kwargs):
         # if data_path is none, set to ../data/imatinib
         self.dataset_type = dataset_type
         joined_path = os.path.join(os.path.dirname(__file__), f'../data/{dataset_type}')
@@ -235,12 +238,56 @@ class CustomBindDataset(data.ProteinDataset):
         self.targets = defaultdict(list)
         self.targets["binding"] = targets["binding"]
         
-        assert(len(self.data) == len(self.targets["binding"]))
+        if to_slice:
+            new_data = []
+            new_targets = []
+            # only slice the training set / validation set. because test set has to be evaluated as a whole
+            for protein, target in zip(self.data[:self.train_sample_count], self.targets["binding"][:self.train_sample_count]):
+                sliced_proteins, sliced_targets = protein_to_slices(
+                    protein,
+                    target,
+                    max_slice_length=max_slice_length,
+                    padding=padding
+                )
+                new_data += sliced_proteins
+                new_targets += sliced_targets
+                
+            # consistently shuffle the sliced data and targets, so that slice from same protein is mixed
+            Random(42).shuffle(new_data)
+            Random(42).shuffle(new_targets)
+            
+            self.data = new_data + self.data[self.train_sample_count:]
+            self.targets["binding"] = new_targets + \
+                self.targets["binding"][self.train_sample_count:]
+            self.train_sample_count = len(new_data)            
+        
+        self.fold_ranges = np.array_split(np.arange(self.train_sample_count), self.fold_count)
+        assert (len(self.data) == len(self.targets["binding"]))
         for protein, binding in zip(self.data, self.targets["binding"]):
             if protein.num_residue != len(binding):
                 print(f'ERROR: protein: {protein.num_residue}, binding: {len(binding)}')
         
-        self.fold_ranges = np.array_split(np.arange(self.train_sample_count), self.fold_count)
+    def initialize_mask_and_weights(self, masks=None, weights=None):
+        if masks is not None:
+            print('Initialize Undersampling: fixed mask')
+            self.masks = masks
+        else:
+            print('Initialize Undersampling: all ones')
+            self.masks = [
+                torch.ones(len(target)).bool()
+                for target in self.targets["binding"]
+            ]
+
+        if weights is not None:
+            print('Initialize Weighting: fixed weight')
+            self.weights = weights
+        else:
+            print('Initialize Weighting: all ones')
+            self.weights = [
+                torch.ones(len(target)).float()
+                for target in self.targets["binding"]
+            ]
+        return self
         
 
     def _get_seq_target(self, path):
@@ -250,7 +297,25 @@ class CustomBindDataset(data.ProteinDataset):
         self.test_sample_count = num_samples - self.train_sample_count
         
         return sequences, {"binding": targets}, pdb_ids
-    
+
+    def _is_train_set(self, index):
+        return (index < self.train_sample_count) and (index not in self.fold_ranges[self.valid_fold_num])
+
+    def _get_mask(self, index):
+        if not self._is_train_set(index) or self.masks is None:
+            # if not train set, do not mask!
+            return torch.ones(len(self.targets["binding"][index])).bool()
+        return self.masks[index]
+
+    def _get_weight(self, index):
+        if not self._is_train_set(index) or self.weights is None:
+            # if not train set, do not weight!
+            return torch.ones(len(self.targets["binding"][index])).float()
+        return self.weights[index]
+
+    def valid_fold(self):
+        return self.fold_ranges[self.valid_fold_num]
+
     def get_item(self, index):
         graph = self.data[index]
         with graph.residue():
@@ -280,23 +345,7 @@ class CustomBindDataset(data.ProteinDataset):
         test_split = torch_data.Subset(self, list(range(self.train_sample_count, self.train_sample_count + self.test_sample_count)))
         return [train_split, validation_split, test_split]
 
-    def valid_fold(self):
-        return self.fold_ranges[self.valid_fold_num]
-
-    def _is_train_set(self, index):
-        return (index < self.train_sample_count) and (index not in self.fold_ranges[self.valid_fold_num])
-
-    def _get_mask(self, index):
-        if not self._is_train_set(index) or self.masks is None:
-            # if not train set, do not mask!
-            return torch.ones(len(self.targets["binding"][index])).bool()
-        return self.masks[index]
-
-    def _get_weight(self, index):
-        if not self._is_train_set(index) or self.weights is None:
-            # if not train set, do not weight!
-            return torch.ones(len(self.targets["binding"][index])).float()
-        return self.weights[index]
+    
     
     def initialize_mask_and_weights(self, masks=None, weights=None):
         if masks is not None:
@@ -308,7 +357,30 @@ class CustomBindDataset(data.ProteinDataset):
                 torch.ones(len(target)).bool()
                 for target in self.targets["binding"]
             ]
+
+    def initialize_mask_and_weights(self, masks=None, weights=None):
+        if masks is not None:
+            print('Initialize Undersampling: fixed mask')
+            self.masks = masks
+        else:
+            print('Initialize Undersampling: all ones')
+            self.masks = [
+                torch.ones(len(target)).bool()
+                for target in self.targets["binding"]
+            ]
         
+        
+        if weights is not None:
+            print('Initialize Weighting: fixed weight')
+            self.weights = weights
+        else:
+            print('Initialize Weighting: all ones')
+            self.weights = [
+                torch.ones(len(target)).float()
+                for target in self.targets["binding"]
+            ]
+        return self
+
         if weights is not None:
             print('Initialize Weighting: fixed weight')
             self.weights = weights

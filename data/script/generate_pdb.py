@@ -28,7 +28,8 @@ class ChainSelect(Select):
 
     def accept_atom(self, atom):
         # Should only accept backbone atoms
-        return atom.get_name() in ["N", "CA", "C", "O"]
+        # to get backbone atom: ["N", "CA", "C", "O"]
+        return atom.get_name() in ["CA"]
 
 
 class LCSSelect(Select):
@@ -116,7 +117,14 @@ def write_parsed_pdb_from_pdb_id(atpbind_sequence, pdb_id, save_pdb_folder):
 
 def generate_all_in_file(filename, save_pdb_folder):
     _, sequences, _, pdb_ids = read_file(filename)
+    
+    deny_list = ['3CRCA', '2C7EG', '3J2TB', '3VNUA',
+                 '4QREA', '5J1SB', '1MABB', '3LEVH', '3BG5A',
+                 '4TU0A',
+                 ]
     for sequence, pdb_id in zip(sequences, pdb_ids):
+        if pdb_id not in deny_list:
+            continue
         print('Generating %s..' % pdb_id)
         write_parsed_pdb_from_pdb_id(sequence, pdb_id, save_pdb_folder)
 
@@ -242,14 +250,14 @@ The affected PDB files are 5J1SB, 1MABB, 3LEVH, and 3BG5A.
 if __name__ == '__main__':
     warnings.filterwarnings("ignore", message=".*discontinuous at line.*")
     warnings.filterwarnings("ignore", message=".*Unknown.*")
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--task', type=str)
-    parser.add_argument('--dataset', type=str)
-    args = parser.parse_args()
+    # import argparse
+    # parser = argparse.ArgumentParser()
+    # parser.add_argument('--task', type=str)
+    # parser.add_argument('--dataset', type=str)
+    # args = parser.parse_args()
 
-    task = args.task
-    dataset_type = args.dataset
+    # task = args.task
+    # dataset_type = args.dataset
     
     # print('Generate train set..')
     # generate_all_in_file('../../lib/train.txt')
@@ -259,20 +267,20 @@ if __name__ == '__main__':
     # print('Generating..')
     # generate_all_in_file(f'../{dataset_type}/{dataset_type}_binding.txt', dataset_type)
     
-    if args.task == 'edit':
-        print(f'Finding close edit distance..')
-        base_path = os.path.join(os.path.dirname(__file__), f'../../data/{dataset_type}')
-        find_close_edit_distance(base_path, f'{dataset_type}_binding.txt', ratio_threshold=0.6)
+    # if args.task == 'edit':
+    #     print(f'Finding close edit distance..')
+    #     base_path = os.path.join(os.path.dirname(__file__), f'../../data/{dataset_type}')
+    #     find_close_edit_distance(base_path, f'{dataset_type}_binding.txt', ratio_threshold=0.6)
     
-    if args.task == 'edit_save':
-        print(f'Finding close edit distance..')
-        base_path = os.path.join(os.path.dirname(__file__), f'../../data/{dataset_type}')
-        unions = find_close_edit_distance(base_path, f'{dataset_type}_binding.txt', ratio_threshold=0.6)
-        pdb_id_order = []
-        for union in unions:
-            pdb_id_order += union
-        random.shuffle(pdb_id_order[:int(len(pdb_id_order)*0.8)])
-        save_lines(os.path.join(base_path, f'{dataset_type}_binding.txt'), pdb_id_order)
+    # if args.task == 'edit_save':
+    #     print(f'Finding close edit distance..')
+    #     base_path = os.path.join(os.path.dirname(__file__), f'../../data/{dataset_type}')
+    #     unions = find_close_edit_distance(base_path, f'{dataset_type}_binding.txt', ratio_threshold=0.6)
+    #     pdb_id_order = []
+    #     for union in unions:
+    #         pdb_id_order += union
+    #     random.shuffle(pdb_id_order[:int(len(pdb_id_order)*0.8)])
+    #     save_lines(os.path.join(base_path, f'{dataset_type}_binding.txt'), pdb_id_order)
     # base_path = os.path.join(os.path.dirname(__file__), f'../../lib')
     # find_close_edit_distance(base_path, f'test.txt')
 
@@ -283,3 +291,7 @@ if __name__ == '__main__':
     # print('Shuffling..')
     # base_path = os.path.join(os.path.dirname(__file__), f'../{dataset_type}/{dataset_type}_binding.txt')
     # shuffle_lines(base_path)
+    
+    # validate:
+    base_path = os.path.join(os.path.dirname(__file__), f'../atp')
+    validate(base_path, 'train.txt')

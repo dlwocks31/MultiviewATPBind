@@ -185,4 +185,3 @@ _debug.py
 
 preds/*
 result_cv/*
-!result_cv/result_cv.csv

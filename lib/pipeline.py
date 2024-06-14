@@ -54,7 +54,7 @@ def get_dataset(dataset, to_slice=True, max_slice_length=550, padding=100):
         protein_view_transform = transforms.ProteinView(view='residue')
         transform = transforms.Compose([protein_view_transform])
 
-        return CustomBindDataset(transform=transform, dataset_type=dataset)
+        return CustomBindDataset(transform=transform, dataset_type=dataset, to_slice=to_slice, max_slice_length=max_slice_length, padding=padding)
     else:
         raise ValueError('Dataset is not supported')
 
@@ -297,12 +297,18 @@ class Pipeline:
 
         pred = utils.cat(preds)
         target = utils.cat(targets)
+        
+        # threshold_mcc = []
 
         for i, threshold in enumerate(thresholds):
             mcc = self.task.evaluate(
                 pred, target, threshold
             )['mcc']
             mcc_values[i] = mcc_values[i] + mcc
+            # threshold_mcc.append((round(threshold,1), round(mcc, 4)))
+        
+        # threshold_mcc.sort(key=lambda x: x[1], reverse=True)
+        # print(threshold_mcc[:10])
 
         max_mcc_idx = np.argmax(mcc_values)
 
