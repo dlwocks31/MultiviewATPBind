@@ -183,7 +183,7 @@ def validate(base_path, filename):
             continue
 
 
-def find_close_edit_distance(base_path, filename, ratio_threshold=0.6):
+def find_close_edit_distance(base_path, filename, ratio_threshold=0.6, log_limit=10):
     _, sequences, _, pdb_ids = read_file(os.path.join(base_path, filename))
     iter = zip(sequences, pdb_ids)
     unions = [[id] for id in pdb_ids]
@@ -214,9 +214,11 @@ def find_close_edit_distance(base_path, filename, ratio_threshold=0.6):
     print(f'{len(unions)} groups:')
     print(unions)
     ratios.sort(key=lambda x: x[0])
-    for ratio, edit_distance, pdb_id1, pdb_id2 in ratios[:10]:
-        print(f'{pdb_id1} {pdb_id2} {ratio} {edit_distance}')
-    return unions
+    if log_limit > 0:
+        print(f'{log_limit} closest pairs:')
+        for ratio, edit_distance, pdb_id1, pdb_id2 in ratios[:log_limit]:
+            print(f'{pdb_id1}-{pdb_id2}: ratio:{ratio}, distance: {edit_distance}')
+        return unions
 
 def shuffle_lines(filename):
     '''
