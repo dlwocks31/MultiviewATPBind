@@ -249,10 +249,6 @@ class CustomBindDataset(data.ProteinDataset):
                 )
                 new_data += sliced_proteins
                 new_targets += sliced_targets
-                
-            # consistently shuffle the sliced data and targets, so that slice from same protein is mixed
-            Random(42).shuffle(new_data)
-            Random(42).shuffle(new_targets)
             
             self.data = new_data + self.data[self.train_sample_count:]
             self.targets["binding"] = new_targets + \
