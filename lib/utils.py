@@ -58,12 +58,14 @@ def generate_mean_ensemble_metrics(df, threshold=0):
     sum_preds_tensor = torch.tensor(sum_preds.values).float()
     target_tensor = torch.tensor(df['target'].values).float()
     auprc = metrics.area_under_prc(sum_preds_tensor, target_tensor).item()
+    auroc = metrics.area_under_roc(sum_preds_tensor, target_tensor).item()
 
     result = {
         "mcc": mcc,
         "micro_auprc": auprc,
         "sensitivity": sensitivity,
         "precision": precision,
+        "micro_auroc": auroc,
     }
     return round_dict(result, 4)
     
