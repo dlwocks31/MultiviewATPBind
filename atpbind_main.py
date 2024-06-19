@@ -137,6 +137,87 @@ ALL_PARAMS = {
             'lm_freeze_layer_count': 30,
         },
     },
+    'esm-t33-gearnet-1280-1-30': {
+        'model': 'lm-gearnet',
+        'model_kwargs': {
+            'lm_type': 'esm-t33',
+            'gearnet_hidden_dim_size': 1280,
+            'gearnet_hidden_dim_count': 1,
+            'lm_freeze_layer_count': 30,
+        },
+    },
+    'esm-t33-gearnet-1280-1-31': {
+        'model': 'lm-gearnet',
+        'model_kwargs': {
+            'lm_type': 'esm-t33',
+            'gearnet_hidden_dim_size': 1280,
+            'gearnet_hidden_dim_count': 1,
+            'lm_freeze_layer_count': 31,
+        },
+    },
+    'esm-t33-gearnet-1280-1-32': {
+        'model': 'lm-gearnet',
+        'model_kwargs': {
+            'lm_type': 'esm-t33',
+            'gearnet_hidden_dim_size': 1280,
+            'gearnet_hidden_dim_count': 1,
+            'lm_freeze_layer_count': 32,
+        },
+    },
+    'esm-t33-gearnet-1280-2-30': {
+        'model': 'lm-gearnet',
+        'model_kwargs': {
+            'lm_type': 'esm-t33',
+            'gearnet_hidden_dim_size': 1280,
+            'gearnet_hidden_dim_count': 2,
+            'lm_freeze_layer_count': 30,
+        },
+    },
+    'esm-t33-gearnet-1280-2-31': {
+        'model': 'lm-gearnet',
+        'model_kwargs': {
+            'lm_type': 'esm-t33',
+            'gearnet_hidden_dim_size': 1280,
+            'gearnet_hidden_dim_count': 2,
+            'lm_freeze_layer_count': 31,
+        },
+    },
+    'esm-t33-gearnet-1280-2-32': {
+        'model': 'lm-gearnet',
+        'model_kwargs': {
+            'lm_type': 'esm-t33',
+            'gearnet_hidden_dim_size': 1280,
+            'gearnet_hidden_dim_count': 2,
+            'lm_freeze_layer_count': 32,
+        },
+    },
+    'esm-t33-gearnet-1280-3-30': {
+        'model': 'lm-gearnet',
+        'model_kwargs': {
+            'lm_type': 'esm-t33',
+            'gearnet_hidden_dim_size': 1280,
+            'gearnet_hidden_dim_count': 3,
+            'lm_freeze_layer_count': 30,
+        },
+    },
+    'esm-t33-gearnet-1280-3-31': {
+        'model': 'lm-gearnet',
+        'model_kwargs': {
+            'lm_type': 'esm-t33',
+            'gearnet_hidden_dim_size': 1280,
+            'gearnet_hidden_dim_count': 3,
+            'lm_freeze_layer_count': 31,
+        },
+    },
+    'esm-t33-gearnet-1280-3-32': {
+        'model': 'lm-gearnet',
+        'model_kwargs': {
+            'lm_type': 'esm-t33',
+            'gearnet_hidden_dim_size': 1280,
+            'gearnet_hidden_dim_count': 3,
+            'lm_freeze_layer_count': 32,
+        },
+    },
     'esm-t33-gearnet-pretrained': {
         'model': 'lm-gearnet',
         'model_kwargs': {
