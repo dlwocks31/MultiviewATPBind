@@ -146,16 +146,7 @@ ALL_PARAMS = {
             'lm_freeze_layer_count': 30,
         },
     },
-    'esm-t33-gearnet-1280-1-29': {
-        'model': 'lm-gearnet',
-        'model_kwargs': {
-            'lm_type': 'esm-t33',
-            'gearnet_hidden_dim_size': 1280,
-            'gearnet_hidden_dim_count': 1,
-            'lm_freeze_layer_count': 29,
-        },
-    },
-    'esm-t33-gearnet-1280-1-30-b4': {
+    'esm-t33-gearnet-1280-1-30-b42': {
         'model': 'lm-gearnet',
         'model_kwargs': {
             'lm_type': 'esm-t33',
@@ -164,33 +155,76 @@ ALL_PARAMS = {
             'lm_freeze_layer_count': 30,
         },
         'batch_size': 4,
+        'gradient_interval': 2,
     },
-    'esm-t33-gearnet-1280-2-30': {
+    'esm-t33-gearnet-1280-1-30-b24': {
         'model': 'lm-gearnet',
         'model_kwargs': {
             'lm_type': 'esm-t33',
             'gearnet_hidden_dim_size': 1280,
-            'gearnet_hidden_dim_count': 2,
+            'gearnet_hidden_dim_count': 1,
             'lm_freeze_layer_count': 30,
         },
+        'batch_size': 2,
+        'gradient_interval': 4,
     },
-    'esm-t33-gearnet-1280-2-30-b4': { 
+    'esm-t33-gearnet-1280-1-30-b44': {
         'model': 'lm-gearnet',
         'model_kwargs': {
             'lm_type': 'esm-t33',
             'gearnet_hidden_dim_size': 1280,
-            'gearnet_hidden_dim_count': 2,
+            'gearnet_hidden_dim_count': 1,
             'lm_freeze_layer_count': 30,
         },
         'batch_size': 4,
+        'gradient_interval': 4,
     },
-    'esm-t33-gearnet-1280-640-30': {
+    'esm-t33-gearnet-1280-1-30-b28': {
         'model': 'lm-gearnet',
         'model_kwargs': {
             'lm_type': 'esm-t33',
-            'gearnet_hidden_dim_size': [1280, 640],
+            'gearnet_hidden_dim_size': 1280,
+            'gearnet_hidden_dim_count': 1,
             'lm_freeze_layer_count': 30,
         },
+        'batch_size': 2,
+        'gradient_interval': 8,
+    },
+    'esm-t33-gearnet-960-30': {
+        'model': 'lm-gearnet',
+        'model_kwargs': {
+            'lm_type': 'esm-t33',
+            'gearnet_hidden_dim_size': [960],
+            'lm_freeze_layer_count': 30,
+        },
+    },
+    'esm-t33-gearnet-960-30-b82': {
+        'model': 'lm-gearnet',
+        'model_kwargs': {
+            'lm_type': 'esm-t33',
+            'gearnet_hidden_dim_size': [960],
+            'lm_freeze_layer_count': 30,
+        },
+        'batch_size': 8,
+        'gradient_interval': 2,
+    },
+    'esm-t33-gearnet-640-30': {
+        'model': 'lm-gearnet',
+        'model_kwargs': {
+            'lm_type': 'esm-t33',
+            'gearnet_hidden_dim_size': [640],
+            'lm_freeze_layer_count': 30,
+        },
+    },
+    'esm-t33-gearnet-640-30-b82': {
+        'model': 'lm-gearnet',
+        'model_kwargs': {
+            'lm_type': 'esm-t33',
+            'gearnet_hidden_dim_size': [640],
+            'lm_freeze_layer_count': 30,
+        },
+        'batch_size': 8,
+        'gradient_interval': 2,
     },
     'esm-t33-gearnet-pretrained': {
         'model': 'lm-gearnet',
@@ -303,6 +337,7 @@ def single_run(
     return_df=False,
     save_weight=False,
     batch_size=None,
+    gradient_interval=1,
 ):
     clear_cache()
     gpu = gpu or GPU
@@ -316,6 +351,7 @@ def single_run(
         },
         valid_fold_num=valid_fold_num,
         batch_size=(8 if dataset == 'atpbind3d' else 2) if batch_size is None else batch_size,
+        gradient_interval=gradient_interval,
         scheduler='cyclic',
         scheduler_kwargs={
             'base_lr': 3e-4,

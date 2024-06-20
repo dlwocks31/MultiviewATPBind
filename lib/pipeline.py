@@ -110,6 +110,7 @@ class Pipeline:
                  scheduler_kwargs={},
                  task_kwargs={},
                  batch_size=1,
+                 gradient_interval=1,
                  verbose=False,
                  valid_fold_num=0,
                  dataset_kwargs={},
@@ -181,8 +182,9 @@ class Pipeline:
             self.scheduler = None
 
         self.verbose = verbose
-        print(f'pipeline batch_size: {batch_size}')
+        print(f'pipeline batch_size: {batch_size}, gradient_interval: {gradient_interval}')
         self.batch_size = batch_size
+        self.gradient_interval = gradient_interval
         self._init_solver()
 
     def apply_mask_and_weights(self, masks, weights=None):
@@ -202,6 +204,7 @@ class Pipeline:
                                       self.optimizer,
                                       scheduler=self.scheduler,
                                       batch_size=self.batch_size,
+                                      gradient_interval=self.gradient_interval,
                                       log_interval=1000000000,
                                       gpus=self.gpus,
                                       )
