@@ -41,7 +41,7 @@ class LMGearNetModel(torch.nn.Module, core.Configurable):
         self.lm = Model.from_pretrained(pretrained_model_name).to(f'cuda:{gpu}')
         self.gearnet = models.GearNet(
             input_dim=self.lm.config.hidden_size,
-            hidden_dims=[gearnet_hidden_dim_size] * gearnet_hidden_dim_count,
+            hidden_dims=([gearnet_hidden_dim_size] * gearnet_hidden_dim_count) if isinstance(gearnet_hidden_dim_size, int) else gearnet_hidden_dim_size,
             num_relation=7,
             edge_input_dim=59,
             num_angle_bin=8,
