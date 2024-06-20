@@ -146,6 +146,15 @@ ALL_PARAMS = {
             'lm_freeze_layer_count': 30,
         },
     },
+    'esm-t33-gearnet-1280-1-29': {
+        'model': 'lm-gearnet',
+        'model_kwargs': {
+            'lm_type': 'esm-t33',
+            'gearnet_hidden_dim_size': 1280,
+            'gearnet_hidden_dim_count': 1,
+            'lm_freeze_layer_count': 29,
+        },
+    },
     'esm-t33-gearnet-1280-1-30-b42': {
         'model': 'lm-gearnet',
         'model_kwargs': {
