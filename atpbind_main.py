@@ -137,15 +137,6 @@ ALL_PARAMS = {
             'lm_freeze_layer_count': 30,
         },
     },
-    'esm-t33-gearnet-1280-1-29': {
-        'model': 'lm-gearnet',
-        'model_kwargs': {
-            'lm_type': 'esm-t33',
-            'gearnet_hidden_dim_size': 1280,
-            'gearnet_hidden_dim_count': 1,
-            'lm_freeze_layer_count': 29,
-        },
-    },
     'esm-t33-gearnet-1280-1-30': {
         'model': 'lm-gearnet',
         'model_kwargs': {
@@ -155,14 +146,24 @@ ALL_PARAMS = {
             'lm_freeze_layer_count': 30,
         },
     },
-    'esm-t33-gearnet-1280-1-31': {
+    'esm-t33-gearnet-1280-1-29': {
         'model': 'lm-gearnet',
         'model_kwargs': {
             'lm_type': 'esm-t33',
             'gearnet_hidden_dim_size': 1280,
             'gearnet_hidden_dim_count': 1,
-            'lm_freeze_layer_count': 31,
+            'lm_freeze_layer_count': 29,
         },
+    },
+    'esm-t33-gearnet-1280-1-30-b4': {
+        'model': 'lm-gearnet',
+        'model_kwargs': {
+            'lm_type': 'esm-t33',
+            'gearnet_hidden_dim_size': 1280,
+            'gearnet_hidden_dim_count': 1,
+            'lm_freeze_layer_count': 30,
+        },
+        'batch_size': 4,
     },
     'esm-t33-gearnet-1280-2-30': {
         'model': 'lm-gearnet',
@@ -173,12 +174,22 @@ ALL_PARAMS = {
             'lm_freeze_layer_count': 30,
         },
     },
+    'esm-t33-gearnet-1280-2-30-b4': { 
+        'model': 'lm-gearnet',
+        'model_kwargs': {
+            'lm_type': 'esm-t33',
+            'gearnet_hidden_dim_size': 1280,
+            'gearnet_hidden_dim_count': 2,
+            'lm_freeze_layer_count': 30,
+        },
+        'batch_size': 4,
+    },
     'esm-t33-gearnet-1280-640-30': {
         'model': 'lm-gearnet',
         'model_kwargs': {
             'lm_type': 'esm-t33',
             'gearnet_hidden_dim_size': [1280, 640],
-            'lm_freeze_layer_count': 31,
+            'lm_freeze_layer_count': 30,
         },
     },
     'esm-t33-gearnet-pretrained': {
@@ -291,6 +302,7 @@ def single_run(
     padding=50,
     return_df=False,
     save_weight=False,
+    batch_size=None,
 ):
     clear_cache()
     gpu = gpu or GPU
@@ -303,7 +315,7 @@ def single_run(
             **model_kwargs,
         },
         valid_fold_num=valid_fold_num,
-        batch_size=8 if dataset == 'atpbind3d' else 2,
+        batch_size=(8 if dataset == 'atpbind3d' else 2) if batch_size is None else batch_size,
         scheduler='cyclic',
         scheduler_kwargs={
             'base_lr': 3e-4,
