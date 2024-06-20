@@ -217,7 +217,7 @@ ALL_PARAMS = {
         'batch_size': 8,
         'gradient_interval': 2,
     },
-    'esm-t33-gearnet-640-30': {
+    'esm-t33-gearnet-640': {
         'model': 'lm-gearnet',
         'model_kwargs': {
             'lm_type': 'esm-t33',
@@ -275,6 +275,10 @@ ALL_PARAMS = {
         'ensemble_count': 10,
         'model_ref': 'esm-t33-gearnet',
     },
+    'esm-t33-gearnet-640-ensemble': {
+        'ensemble_count': 10,
+        'model_ref': 'esm-t33-gearnet-640',
+    },
     'esm-t33-gearnet-pretrained-ensemble': {
         'ensemble_count': 10,
         'model_ref': 'esm-t33-gearnet-pretrained',
@@ -284,40 +288,30 @@ ALL_PARAMS = {
         'model_ref': 'esm-t33-gearnet',
         'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=True),
     },
-    'esm-t33-gearnet-adaboost-r20': {
+    'esm-t33-gearnet-640-adaboost-r10': {
         'ensemble_count': 10,
-        'model_ref': 'esm-t33-gearnet',
-        'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.2, mask_positive=True),
+        'model_ref': 'esm-t33-gearnet-640',
+        'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=True),
     },
     'esm-t33-gearnet-pretrained-adaboost-r10': {
         'ensemble_count': 10,
         'model_ref': 'esm-t33-gearnet-pretrained',
         'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=True),
     },
-    'esm-t33-gearnet-pretrained-adaboost-r20': {
-        'ensemble_count': 10,
-        'model_ref': 'esm-t33-gearnet-pretrained',
-        'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.2, mask_positive=True),
-    },
     'esm-t33-gearnet-resiboost-r10': {
         'ensemble_count': 10,
         'model_ref': 'esm-t33-gearnet',
         'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=False),
     },
-    'esm-t33-gearnet-resiboost-r20': {
+    'esm-t33-gearnet-640-resiboost-r10': {
         'ensemble_count': 10,
         'model_ref': 'esm-t33-gearnet',
-        'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.2, mask_positive=False),
+        'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=False),
     },
     'esm-t33-gearnet-pretrained-resiboost-r10': {
         'ensemble_count': 10,
         'model_ref': 'esm-t33-gearnet-pretrained',
         'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=False),
-    },
-    'esm-t33-gearnet-pretrained-resiboost-r20': {
-        'ensemble_count': 10,
-        'model_ref': 'esm-t33-gearnet-pretrained',
-        'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.2, mask_positive=False),
     },
 }
 
@@ -347,6 +341,7 @@ def single_run(
     save_weight=False,
     batch_size=None,
     gradient_interval=1,
+    original_model_key=None,
 ):
     clear_cache()
     gpu = gpu or GPU
@@ -397,8 +392,14 @@ def single_run(
         df_train = df_valid = df_test = None
     
     if save_weight:
-        print(f'Saving weight to weight/{dataset}_{model}_{valid_fold_num}.pt')
-        torch.save(pipeline.task.state_dict(), f'weight/{dataset}_{model}_{valid_fold_num}.pt')
+        file = f'weight/{dataset}_{original_model_key}_{valid_fold_num}.pt'
+        print(f'Saving weight to {file}')
+        
+        # TODO: this assumes lm-gearnet model, and freezing first 30 layer
+        original_state_dict = pipeline.task.state_dict()
+        filtered_state_dict = {k: v for k, v in original_state_dict.items() if not (
+            k.startswith('model.lm.encoder.layer.') and int(k.split('.')[-1]) < 30)}
+        torch.save(filtered_state_dict, file)
         print('Done saving weight')
 
     return {
@@ -516,6 +517,7 @@ def main(dataset, model_key, valid_fold, extra_kwargs={}, save_weight=False):
     model = ALL_PARAMS[model_key]
     if 'ensemble_count' not in model: # single run model
         result_dict = single_run(
+            original_model_key=model_key,
             dataset=dataset,
             valid_fold_num=valid_fold,
             save_weight=save_weight,
