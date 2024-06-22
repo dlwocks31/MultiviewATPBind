@@ -75,6 +75,66 @@ WRITE_DF = False
 
 CYCLE_SIZE = 10
 
+
+def generate_esm_t33_gearnet_params(hidden_dim_size):
+    def generate_prefix(hidden_dim_size):
+        if all(i == hidden_dim_size[0] for i in hidden_dim_size):
+            prefix = f'esm-t33-gearnet-{hidden_dim_size[0]}-{len(hidden_dim_size)}'
+        else:
+            prefix = f'esm-t33-gearnet'
+            for i in hidden_dim_size:
+                prefix += f'-{i}'
+        return prefix
+    prefix = generate_prefix(hidden_dim_size)
+    print(f'Generating params for {prefix}')
+    return {
+        f'{prefix}': {
+            'model': 'lm-gearnet',
+            'model_kwargs': {
+                'lm_type': 'esm-t33',
+                'gearnet_hidden_dim_size': hidden_dim_size,
+                'lm_freeze_layer_count': 30,
+            },
+        },
+        f'{prefix}-pretrained': {
+            'model': 'lm-gearnet',
+            'model_kwargs': {
+                'lm_type': 'esm-t33',
+                'gearnet_hidden_dim_size': hidden_dim_size,
+                'lm_freeze_layer_count': 30,
+            },
+            'pipeline_before_train_fn': load_pretrained_fn(f'weight/atpbind3d_esm-t33-gearnet-{prefix}_1.pt'),
+        },
+        f'{prefix}-ensemble': {
+            'ensemble_count': 10,
+            'model_ref': f'{prefix}',
+        },
+        f'{prefix}-pretrained-ensemble': {
+            'ensemble_count': 10,
+            'model_ref': f'{prefix}-pretrained',
+        },
+        f'{prefix}-adaboost-r10': {
+            'ensemble_count': 10,
+            'model_ref': f'{prefix}',
+            'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=True),
+        },
+        f'{prefix}-pretrained-adaboost-r10': {
+            'ensemble_count': 10,
+            'model_ref': f'{prefix}-pretrained',
+            'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=True),
+        },
+        f'{prefix}-resiboost-r10': {
+            'ensemble_count': 10,
+            'model_ref': f'{prefix}',
+            'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=False),
+        },
+        f'{prefix}-pretrained-resiboost-r10': {
+            'ensemble_count': 10,
+            'model_ref': f'{prefix}-pretrained',
+            'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=False),
+        },
+    }
+
 ALL_PARAMS = {
     'esm-t33': {
         'model': 'esm-t33',
@@ -186,7 +246,6 @@ ALL_PARAMS = {
         'model_ref': 'esm-t33-gearnet',
         'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=True),
     },
-
     'esm-t33-gearnet-pretrained-adaboost-r10': {
         'ensemble_count': 10,
         'model_ref': 'esm-t33-gearnet-pretrained',
@@ -211,22 +270,6 @@ ALL_PARAMS = {
         },
         'batch_size': 4,
         'gradient_interval': 2,
-    },
-    'esm-t33-gearnet-640-2': {
-        'model': 'lm-gearnet',
-        'model_kwargs': {
-            'lm_type': 'esm-t33',
-            'gearnet_hidden_dim_size': [640, 640],
-            'lm_freeze_layer_count': 30,
-        },
-    },
-    'esm-t33-gearnet-960-2': {
-        'model': 'lm-gearnet',
-        'model_kwargs': {
-            'lm_type': 'esm-t33',
-            'gearnet_hidden_dim_size': [960, 960],
-            'lm_freeze_layer_count': 30,
-        },
     },
     'esm-t33-gearnet-640-pretrained': {
         'model': 'lm-gearnet',
@@ -265,6 +308,9 @@ ALL_PARAMS = {
         'model_ref': 'esm-t33-gearnet-640-pretrained',
         'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=False),
     },
+    **generate_esm_t33_gearnet_params([640, 640]),
+    **generate_esm_t33_gearnet_params([960, 960]),
+    **generate_esm_t33_gearnet_params([320, 320, 320, 320]),
 }
 
 
@@ -507,14 +553,25 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', type=str, nargs='+', default=['atpbind3d'])
     parser.add_argument('--model_keys', type=str, nargs='+', default=['esm-t33'])
+    parser.add_argument('--model_key_regex', type=str, default=None)
     parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--valid_folds', type=int, nargs='+', default=[0, 1, 2, 3, 4])
     parser.add_argument('--save_weight', action='store_true')
 
     args = parser.parse_args()
     GPU = args.gpu
+    
+    if args.model_key_regex:
+        import re
+        print(f'Using model key regex {args.model_key_regex}')
+        model_keys = list(ALL_PARAMS.keys())
+        model_keys = [key for key in model_keys if re.match(args.model_key_regex, key)]
+    else:
+        model_keys = args.model_keys
+        
+    
     print(f'Using default GPU {args.gpu}')
-    print(f'Running model keys {args.model_keys}')
+    print(f'Running model keys {model_keys}')
     print(f'Running valid folds {args.valid_folds}')
     
     # set this on need
@@ -522,7 +579,7 @@ if __name__ == '__main__':
     
     try:
         for dataset in args.dataset:
-            for model_key in args.model_keys:
+            for model_key in model_keys:
                 for valid_fold in args.valid_folds:
                     if not extra_kwargs:
                         extra_kwargs = [{}]
