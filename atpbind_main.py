@@ -310,6 +310,7 @@ ALL_PARAMS = {
     },
     **generate_esm_t33_gearnet_params([640, 640]),
     **generate_esm_t33_gearnet_params([960, 960]),
+    **generate_esm_t33_gearnet_params([800, 800, 800]),
     **generate_esm_t33_gearnet_params([320, 320, 320, 320]),
 }
 
