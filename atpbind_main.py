@@ -328,6 +328,7 @@ def clear_cache():
     torch.cuda.empty_cache()
 
 def save_pipeline_weight(pipeline, path):
+    path = get_data_path(path)
     print(f'Saving weight to {path}')
     original_state_dict = pipeline.task.state_dict()
     filtered_state_dict = {k: v for k, v in original_state_dict.items() if not (
