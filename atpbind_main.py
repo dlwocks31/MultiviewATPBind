@@ -66,7 +66,7 @@ def load_pretrained_fn(path):
     def load_pretrained(pipeline):
         load_path = get_data_path(path)
         print(f'Loading weight from {load_path}')
-        pipeline.task.load_state_dict(torch.load(load_path), strict=True)
+        pipeline.task.load_state_dict(torch.load(load_path), strict=False)
         print('Done loading weight')
     return load_pretrained
 
@@ -137,104 +137,6 @@ ALL_PARAMS = {
             'lm_freeze_layer_count': 30,
         },
     },
-    'esm-t33-gearnet-1280-1-30': {
-        'model': 'lm-gearnet',
-        'model_kwargs': {
-            'lm_type': 'esm-t33',
-            'gearnet_hidden_dim_size': 1280,
-            'gearnet_hidden_dim_count': 1,
-            'lm_freeze_layer_count': 30,
-        },
-    },
-    'esm-t33-gearnet-1280-1-29': {
-        'model': 'lm-gearnet',
-        'model_kwargs': {
-            'lm_type': 'esm-t33',
-            'gearnet_hidden_dim_size': 1280,
-            'gearnet_hidden_dim_count': 1,
-            'lm_freeze_layer_count': 29,
-        },
-    },
-    'esm-t33-gearnet-1280-1-30-b42': {
-        'model': 'lm-gearnet',
-        'model_kwargs': {
-            'lm_type': 'esm-t33',
-            'gearnet_hidden_dim_size': 1280,
-            'gearnet_hidden_dim_count': 1,
-            'lm_freeze_layer_count': 30,
-        },
-        'batch_size': 4,
-        'gradient_interval': 2,
-    },
-    'esm-t33-gearnet-1280-1-30-b24': {
-        'model': 'lm-gearnet',
-        'model_kwargs': {
-            'lm_type': 'esm-t33',
-            'gearnet_hidden_dim_size': 1280,
-            'gearnet_hidden_dim_count': 1,
-            'lm_freeze_layer_count': 30,
-        },
-        'batch_size': 2,
-        'gradient_interval': 4,
-    },
-    'esm-t33-gearnet-1280-1-30-b44': {
-        'model': 'lm-gearnet',
-        'model_kwargs': {
-            'lm_type': 'esm-t33',
-            'gearnet_hidden_dim_size': 1280,
-            'gearnet_hidden_dim_count': 1,
-            'lm_freeze_layer_count': 30,
-        },
-        'batch_size': 4,
-        'gradient_interval': 4,
-    },
-    'esm-t33-gearnet-1280-1-30-b28': {
-        'model': 'lm-gearnet',
-        'model_kwargs': {
-            'lm_type': 'esm-t33',
-            'gearnet_hidden_dim_size': 1280,
-            'gearnet_hidden_dim_count': 1,
-            'lm_freeze_layer_count': 30,
-        },
-        'batch_size': 2,
-        'gradient_interval': 8,
-    },
-    'esm-t33-gearnet-960-30': {
-        'model': 'lm-gearnet',
-        'model_kwargs': {
-            'lm_type': 'esm-t33',
-            'gearnet_hidden_dim_size': [960],
-            'lm_freeze_layer_count': 30,
-        },
-    },
-    'esm-t33-gearnet-960-30-b82': {
-        'model': 'lm-gearnet',
-        'model_kwargs': {
-            'lm_type': 'esm-t33',
-            'gearnet_hidden_dim_size': [960],
-            'lm_freeze_layer_count': 30,
-        },
-        'batch_size': 8,
-        'gradient_interval': 2,
-    },
-    'esm-t33-gearnet-640': {
-        'model': 'lm-gearnet',
-        'model_kwargs': {
-            'lm_type': 'esm-t33',
-            'gearnet_hidden_dim_size': [640],
-            'lm_freeze_layer_count': 30,
-        },
-    },
-    'esm-t33-gearnet-640-30-b82': {
-        'model': 'lm-gearnet',
-        'model_kwargs': {
-            'lm_type': 'esm-t33',
-            'gearnet_hidden_dim_size': [640],
-            'lm_freeze_layer_count': 30,
-        },
-        'batch_size': 8,
-        'gradient_interval': 2,
-    },
     'esm-t33-gearnet-pretrained': {
         'model': 'lm-gearnet',
         'model_kwargs': {
@@ -275,10 +177,6 @@ ALL_PARAMS = {
         'ensemble_count': 10,
         'model_ref': 'esm-t33-gearnet',
     },
-    'esm-t33-gearnet-640-ensemble': {
-        'ensemble_count': 10,
-        'model_ref': 'esm-t33-gearnet-640',
-    },
     'esm-t33-gearnet-pretrained-ensemble': {
         'ensemble_count': 10,
         'model_ref': 'esm-t33-gearnet-pretrained',
@@ -288,11 +186,7 @@ ALL_PARAMS = {
         'model_ref': 'esm-t33-gearnet',
         'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=True),
     },
-    'esm-t33-gearnet-640-adaboost-r10': {
-        'ensemble_count': 10,
-        'model_ref': 'esm-t33-gearnet-640',
-        'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=True),
-    },
+
     'esm-t33-gearnet-pretrained-adaboost-r10': {
         'ensemble_count': 10,
         'model_ref': 'esm-t33-gearnet-pretrained',
@@ -303,14 +197,72 @@ ALL_PARAMS = {
         'model_ref': 'esm-t33-gearnet',
         'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=False),
     },
-    'esm-t33-gearnet-640-resiboost-r10': {
-        'ensemble_count': 10,
-        'model_ref': 'esm-t33-gearnet',
-        'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=False),
-    },
     'esm-t33-gearnet-pretrained-resiboost-r10': {
         'ensemble_count': 10,
         'model_ref': 'esm-t33-gearnet-pretrained',
+        'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=False),
+    },
+    'esm-t33-gearnet-640': {
+        'model': 'lm-gearnet',
+        'model_kwargs': {
+            'lm_type': 'esm-t33',
+            'gearnet_hidden_dim_size': [640],
+            'lm_freeze_layer_count': 30,
+        },
+        'batch_size': 4,
+        'gradient_interval': 2,
+    },
+    'esm-t33-gearnet-640-2': {
+        'model': 'lm-gearnet',
+        'model_kwargs': {
+            'lm_type': 'esm-t33',
+            'gearnet_hidden_dim_size': [640, 640],
+            'lm_freeze_layer_count': 30,
+        },
+    },
+    'esm-t33-gearnet-960-2': {
+        'model': 'lm-gearnet',
+        'model_kwargs': {
+            'lm_type': 'esm-t33',
+            'gearnet_hidden_dim_size': [960, 960],
+            'lm_freeze_layer_count': 30,
+        },
+    },
+    'esm-t33-gearnet-640-pretrained': {
+        'model': 'lm-gearnet',
+        'model_kwargs': {
+            'lm_type': 'esm-t33',
+            'gearnet_hidden_dim_size': [640],
+            'lm_freeze_layer_count': 30,
+        },
+        'pipeline_before_train_fn': load_pretrained_fn('weight/atpbind3d_esm-t33-gearnet-640_1.pt'),
+    },
+    'esm-t33-gearnet-640-ensemble': {
+        'ensemble_count': 10,
+        'model_ref': 'esm-t33-gearnet-640',
+    },
+    'esm-t33-gearnet-640-pretrained-ensemble': {
+        'ensemble_count': 10,
+        'model_ref': 'esm-t33-gearnet-640-pretrained',
+    },
+    'esm-t33-gearnet-640-adaboost-r10': {
+        'ensemble_count': 10,
+        'model_ref': 'esm-t33-gearnet-640',
+        'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=True),
+    },
+    'esm-t33-gearnet-640-pretrained-adaboost-r10': {
+        'ensemble_count': 10,
+        'model_ref': 'esm-t33-gearnet-640-pretrained',
+        'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=True),
+    },
+    'esm-t33-gearnet-640-resiboost-r10': {
+        'ensemble_count': 10,
+        'model_ref': 'esm-t33-gearnet-640',
+        'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=False),
+    },
+    'esm-t33-gearnet-640-pretrained-resiboost-r10': {
+        'ensemble_count': 10,
+        'model_ref': 'esm-t33-gearnet-640-pretrained',
         'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=False),
     },
 }
@@ -328,6 +280,14 @@ def clear_cache():
     gc.collect()
     torch.cuda.empty_cache()
 
+def save_pipeline_weight(pipeline, path):
+    print(f'Saving weight to {path}')
+    original_state_dict = pipeline.task.state_dict()
+    filtered_state_dict = {k: v for k, v in original_state_dict.items() if not (
+        k.startswith('model.lm.encoder.layer.') and int(k.split('.')[4]) < 30)}
+    torch.save(filtered_state_dict, path)
+    print('Done saving weight')
+    
 def single_run(
     dataset,
     valid_fold_num,
@@ -354,7 +314,7 @@ def single_run(
             **model_kwargs,
         },
         valid_fold_num=valid_fold_num,
-        batch_size=(8 if dataset == 'atpbind3d' else 2) if batch_size is None else batch_size,
+        batch_size=(8 if batch_size is None else batch_size) if dataset == 'atpbind3d' else 2,
         gradient_interval=gradient_interval,
         scheduler='cyclic',
         scheduler_kwargs={
@@ -393,14 +353,7 @@ def single_run(
     
     if save_weight:
         file = f'weight/{dataset}_{original_model_key}_{valid_fold_num}.pt'
-        print(f'Saving weight to {file}')
-        
-        # TODO: this assumes lm-gearnet model, and freezing first 30 layer
-        original_state_dict = pipeline.task.state_dict()
-        filtered_state_dict = {k: v for k, v in original_state_dict.items() if not (
-            k.startswith('model.lm.encoder.layer.') and int(k.split('.')[-1]) < 30)}
-        torch.save(filtered_state_dict, file)
-        print('Done saving weight')
+        save_pipeline_weight(pipeline, file)
 
     return {
         'df_train': df_train,
@@ -448,9 +401,9 @@ def ensemble_run(
             **extra_kwargs,
         )
         if save_weight:
-            print(f'Saving weight to weight/{dataset}_{model_ref}_{valid_fold_num}_{i}.pt')
-            torch.save(res['pipeline'].task.state_dict(), f'weight/{dataset}_{original_model_key}_{valid_fold_num}_{i}.pt')
-            print('Done saving weight')
+            file = f'weight/{dataset}_{original_model_key}_{valid_fold_num}_{i}.pt'
+            save_pipeline_weight(res['pipeline'], file)
+            
         df_trains.append(res['df_train'])
         df_valids.append(res['df_valid'])
         df_tests.append(res['df_test'])
