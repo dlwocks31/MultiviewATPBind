@@ -103,7 +103,7 @@ def generate_esm_t33_gearnet_params(hidden_dim_size):
                 'gearnet_hidden_dim_size': hidden_dim_size,
                 'lm_freeze_layer_count': 30,
             },
-            'pipeline_before_train_fn': load_pretrained_fn(f'weight/atpbind3d_esm-t33-gearnet-{prefix}_1.pt'),
+            'pipeline_before_train_fn': load_pretrained_fn(f'weight/atpbind3d_{prefix}_1.pt'),
         },
         f'{prefix}-ensemble': {
             'ensemble_count': 10,
