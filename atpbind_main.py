@@ -62,6 +62,28 @@ def make_resiboost_preprocess_fn(negative_use_ratio, mask_positive=False):
         return resiboost_preprocess
     return make_resiboost_preprocess_traintime_fn
 
+def make_rus_preprocess_fn(use_ratio, mask_positive=True):
+    def make_rus_preprocess_traintime_fn(df_trains):
+        '''
+        RUS does not use df_trains. is added for consistency with resiboost
+        '''
+        def rus_preprocess(pipeline):
+            masks = pipeline.dataset.masks
+            targets = pipeline.dataset.targets['binding']
+            valid_fold = pipeline.dataset.valid_fold()
+            for i, mask in enumerate(masks):
+                if i in valid_fold:
+                    continue
+                for j in range(len(mask)):
+                    if not mask_positive and targets[i][j] == 1:
+                        # if mask_positive is false (only mask negative), pass positive residues
+                        continue
+                    if np.random.rand() > use_ratio:
+                        mask[j] = False
+            pipeline.apply_mask_and_weights(masks=masks)
+        return rus_preprocess
+    return make_rus_preprocess_traintime_fn
+
 def load_pretrained_fn(path):
     def load_pretrained(pipeline):
         load_path = get_data_path(path)
@@ -76,7 +98,7 @@ WRITE_DF = False
 CYCLE_SIZE = 10
 
 
-def generate_esm_t33_gearnet_params(hidden_dim_size):
+def generate_esm_t33_gearnet_params(hidden_dim_size, prefix_override=None):
     def generate_prefix(hidden_dim_size):
         if all(i == hidden_dim_size[0] for i in hidden_dim_size):
             prefix = f'esm-t33-gearnet-{hidden_dim_size[0]}-{len(hidden_dim_size)}'
@@ -85,7 +107,7 @@ def generate_esm_t33_gearnet_params(hidden_dim_size):
             for i in hidden_dim_size:
                 prefix += f'-{i}'
         return prefix
-    prefix = generate_prefix(hidden_dim_size)
+    prefix = generate_prefix(hidden_dim_size) if prefix_override is None else prefix_override
     print(f'Generating params for {prefix}')
     return {
         f'{prefix}': {
@@ -132,6 +154,16 @@ def generate_esm_t33_gearnet_params(hidden_dim_size):
             'ensemble_count': 10,
             'model_ref': f'{prefix}-pretrained',
             'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=False),
+        },
+        f'{prefix}-rus-r50': {
+            'ensemble_count': 10,
+            'model_ref': f'{prefix}',
+            'pipeline_before_train_fn': make_rus_preprocess_fn(use_ratio=0.5, mask_positive=True),
+        },
+        f'{prefix}-negrus-r50': {
+            'ensemble_count': 10,
+            'model_ref': f'{prefix}',
+            'pipeline_before_train_fn': make_rus_preprocess_fn(use_ratio=0.5, mask_positive=False),
         },
     }
 
@@ -188,25 +220,6 @@ ALL_PARAMS = {
             'lm_freeze_layer_count': 29,
         },
     },
-    'esm-t33-gearnet': {
-        'model': 'lm-gearnet',
-        'model_kwargs': {
-            'lm_type': 'esm-t33',
-            'gearnet_hidden_dim_size': 512,
-            'gearnet_hidden_dim_count': 4,
-            'lm_freeze_layer_count': 30,
-        },
-    },
-    'esm-t33-gearnet-pretrained': {
-        'model': 'lm-gearnet',
-        'model_kwargs': {
-            'lm_type': 'esm-t33',
-            'gearnet_hidden_dim_size': 512,
-            'gearnet_hidden_dim_count': 4,
-            'lm_freeze_layer_count': 30,
-        },
-        'pipeline_before_train_fn': load_pretrained_fn('weight/atpbind3d_lm-gearnet_1.pt'),
-    },
     'esm-t36-gearnet': {
         'model': 'lm-gearnet',
         'model_kwargs': {
@@ -233,84 +246,12 @@ ALL_PARAMS = {
             'freeze_layer_count': 30,  
         },
     },
-    'esm-t33-gearnet-ensemble': {
-        'ensemble_count': 10,
-        'model_ref': 'esm-t33-gearnet',
-    },
-    'esm-t33-gearnet-pretrained-ensemble': {
-        'ensemble_count': 10,
-        'model_ref': 'esm-t33-gearnet-pretrained',
-    },
-    'esm-t33-gearnet-adaboost-r10': {
-        'ensemble_count': 10,
-        'model_ref': 'esm-t33-gearnet',
-        'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=True),
-    },
-    'esm-t33-gearnet-pretrained-adaboost-r10': {
-        'ensemble_count': 10,
-        'model_ref': 'esm-t33-gearnet-pretrained',
-        'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=True),
-    },
-    'esm-t33-gearnet-resiboost-r10': {
-        'ensemble_count': 10,
-        'model_ref': 'esm-t33-gearnet',
-        'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=False),
-    },
-    'esm-t33-gearnet-pretrained-resiboost-r10': {
-        'ensemble_count': 10,
-        'model_ref': 'esm-t33-gearnet-pretrained',
-        'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=False),
-    },
-    'esm-t33-gearnet-640': {
-        'model': 'lm-gearnet',
-        'model_kwargs': {
-            'lm_type': 'esm-t33',
-            'gearnet_hidden_dim_size': [640],
-            'lm_freeze_layer_count': 30,
-        },
-        'batch_size': 4,
-        'gradient_interval': 2,
-    },
-    'esm-t33-gearnet-640-pretrained': {
-        'model': 'lm-gearnet',
-        'model_kwargs': {
-            'lm_type': 'esm-t33',
-            'gearnet_hidden_dim_size': [640],
-            'lm_freeze_layer_count': 30,
-        },
-        'pipeline_before_train_fn': load_pretrained_fn('weight/atpbind3d_esm-t33-gearnet-640_1.pt'),
-    },
-    'esm-t33-gearnet-640-ensemble': {
-        'ensemble_count': 10,
-        'model_ref': 'esm-t33-gearnet-640',
-    },
-    'esm-t33-gearnet-640-pretrained-ensemble': {
-        'ensemble_count': 10,
-        'model_ref': 'esm-t33-gearnet-640-pretrained',
-    },
-    'esm-t33-gearnet-640-adaboost-r10': {
-        'ensemble_count': 10,
-        'model_ref': 'esm-t33-gearnet-640',
-        'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=True),
-    },
-    'esm-t33-gearnet-640-pretrained-adaboost-r10': {
-        'ensemble_count': 10,
-        'model_ref': 'esm-t33-gearnet-640-pretrained',
-        'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=True),
-    },
-    'esm-t33-gearnet-640-resiboost-r10': {
-        'ensemble_count': 10,
-        'model_ref': 'esm-t33-gearnet-640',
-        'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=False),
-    },
-    'esm-t33-gearnet-640-pretrained-resiboost-r10': {
-        'ensemble_count': 10,
-        'model_ref': 'esm-t33-gearnet-640-pretrained',
-        'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=False),
-    },
+    **generate_esm_t33_gearnet_params([512, 512, 512, 512], 'esm-t33-gearnet'),
+    **generate_esm_t33_gearnet_params([640]),
     **generate_esm_t33_gearnet_params([640, 640]),
     **generate_esm_t33_gearnet_params([960, 960]),
     **generate_esm_t33_gearnet_params([800, 800, 800]),
+    **generate_esm_t33_gearnet_params([800, 800, 800, 800]),
     **generate_esm_t33_gearnet_params([320, 320, 320, 320]),
 }
 
