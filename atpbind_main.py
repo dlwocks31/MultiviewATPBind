@@ -160,6 +160,11 @@ def generate_esm_t33_gearnet_params(hidden_dim_size, prefix_override=None):
             'model_ref': f'{prefix}',
             'pipeline_before_train_fn': make_rus_preprocess_fn(use_ratio=0.5, mask_positive=True),
         },
+        f'{prefix}-rus-r90': {
+            'ensemble_count': 10,
+            'model_ref': f'{prefix}',
+            'pipeline_before_train_fn': make_rus_preprocess_fn(use_ratio=0.9, mask_positive=True),
+        },
         f'{prefix}-negrus-r50': {
             'ensemble_count': 10,
             'model_ref': f'{prefix}',
