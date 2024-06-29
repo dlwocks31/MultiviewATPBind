@@ -109,6 +109,52 @@ def generate_esm_t33_gearnet_params(hidden_dim_size, prefix_override=None):
         return prefix
     prefix = generate_prefix(hidden_dim_size) if prefix_override is None else prefix_override
     print(f'Generating params for {prefix}')
+    
+    def generate_ratio_method(prefix, ratio):
+        ratio_str = f'r{ratio:02d}'
+        return {
+            f'{prefix}-adaboost-{ratio_str}': {
+                'ensemble_count': 10,
+                'model_ref': f'{prefix}',
+                'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=ratio/100, mask_positive=True),
+            },
+            f'{prefix}-pretrained-adaboost-{ratio_str}': {
+                'ensemble_count': 10,
+                'model_ref': f'{prefix}-pretrained',
+                'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=ratio/100, mask_positive=True),
+            },
+            f'{prefix}-resiboost-{ratio_str}': {
+                'ensemble_count': 10,
+                'model_ref': f'{prefix}',
+                'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=ratio/100, mask_positive=False),
+            },
+            f'{prefix}-pretrained-resiboost-{ratio_str}': {
+                'ensemble_count': 10,
+                'model_ref': f'{prefix}-pretrained',
+                'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=ratio/100, mask_positive=False),
+            },
+            f'{prefix}-rus-{ratio_str}': {
+                'ensemble_count': 10,
+                'model_ref': f'{prefix}',
+                'pipeline_before_train_fn': make_rus_preprocess_fn(use_ratio=ratio/100, mask_positive=True),
+            },
+            f'{prefix}-pretrained-rus-{ratio_str}': {
+                'ensemble_count': 10,
+                'model_ref': f'{prefix}-pretrained',
+                'pipeline_before_train_fn': make_rus_preprocess_fn(use_ratio=ratio/100, mask_positive=True),
+            },
+            f'{prefix}-negrus-{ratio_str}': {
+                'ensemble_count': 10,
+                'model_ref': f'{prefix}',
+                'pipeline_before_train_fn': make_rus_preprocess_fn(use_ratio=ratio/100, mask_positive=False),
+            },
+            f'{prefix}-pretrained-negrus-{ratio_str}': {
+                'ensemble_count': 10,
+                'model_ref': f'{prefix}-pretrained',
+                'pipeline_before_train_fn': make_rus_preprocess_fn(use_ratio=ratio/100, mask_positive=False),
+            },
+        }
+        
     return {
         f'{prefix}': {
             'model': 'lm-gearnet',
@@ -135,41 +181,10 @@ def generate_esm_t33_gearnet_params(hidden_dim_size, prefix_override=None):
             'ensemble_count': 10,
             'model_ref': f'{prefix}-pretrained',
         },
-        f'{prefix}-adaboost-r10': {
-            'ensemble_count': 10,
-            'model_ref': f'{prefix}',
-            'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=True),
-        },
-        f'{prefix}-pretrained-adaboost-r10': {
-            'ensemble_count': 10,
-            'model_ref': f'{prefix}-pretrained',
-            'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=True),
-        },
-        f'{prefix}-resiboost-r10': {
-            'ensemble_count': 10,
-            'model_ref': f'{prefix}',
-            'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=False),
-        },
-        f'{prefix}-pretrained-resiboost-r10': {
-            'ensemble_count': 10,
-            'model_ref': f'{prefix}-pretrained',
-            'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=0.1, mask_positive=False),
-        },
-        f'{prefix}-rus-r50': {
-            'ensemble_count': 10,
-            'model_ref': f'{prefix}',
-            'pipeline_before_train_fn': make_rus_preprocess_fn(use_ratio=0.5, mask_positive=True),
-        },
-        f'{prefix}-rus-r90': {
-            'ensemble_count': 10,
-            'model_ref': f'{prefix}',
-            'pipeline_before_train_fn': make_rus_preprocess_fn(use_ratio=0.9, mask_positive=True),
-        },
-        f'{prefix}-negrus-r50': {
-            'ensemble_count': 10,
-            'model_ref': f'{prefix}',
-            'pipeline_before_train_fn': make_rus_preprocess_fn(use_ratio=0.5, mask_positive=False),
-        },
+        **generate_ratio_method(prefix, 90),
+        **generate_ratio_method(prefix, 80),
+        **generate_ratio_method(prefix, 50),
+        **generate_ratio_method(prefix, 10),
     }
 
 ALL_PARAMS = {
