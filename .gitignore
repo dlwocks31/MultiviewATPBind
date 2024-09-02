@@ -185,3 +185,5 @@ _debug.py
 
 preds/*
 result_cv/*
+
+test.ipynb

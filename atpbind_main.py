@@ -183,6 +183,7 @@ def generate_esm_t33_gearnet_params(hidden_dim_size, prefix_override=None):
         },
         **generate_ratio_method(prefix, 90),
         **generate_ratio_method(prefix, 80),
+        **generate_ratio_method(prefix, 70),
         **generate_ratio_method(prefix, 50),
         **generate_ratio_method(prefix, 10),
     }

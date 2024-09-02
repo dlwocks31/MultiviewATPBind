@@ -5,26 +5,26 @@ import torch
 import pandas as pd
 
 from lib.pipeline import Pipeline
-from lib.utils import dict_tensor_to_num
+from lib.utils import dict_tensor_to_num, read_initial_csv
 from atpbind_main import ALL_PARAMS
 
 
 params = [
     {
         'model': 'esm-t33-gearnet',
-        'weights': [[f'atpbind3d_lm-gearnet_{i}.pt'] for i in range(5)],
+        'weights': [[f'atpbind3d_esm-t33-gearnet_{i}.pt'] for i in range(5)],
     },
     {
-        'model': 'esm-t33-gearnet-adaboost-r10',
+        'model': 'esm-t33-gearnet-adaboost-r90',
         'weights': [
-            [f'atpbind3d_esm-t33-gearnet-adaboost-r10_{fold}_{i}.pt' for i in range(10)]
+            [f'atpbind3d_esm-t33-gearnet-adaboost-r90_{fold}_{i}.pt' for i in range(10)]
             for fold in range(5)
         ],
     },
     {
-        'model': 'esm-t33-gearnet-resiboost-r10',
+        'model': 'esm-t33-gearnet-resiboost-r90',
         'weights': [
-            [f'atpbind3d_esm-t33-gearnet-resiboost-r10_{fold}_{i}.pt' for i in range(10)]
+            [f'atpbind3d_esm-t33-gearnet-resiboost-r90_{fold}_{i}.pt' for i in range(10)]
             for fold in range(5)
         ],
     }
@@ -49,7 +49,7 @@ def esm_inference(model_key, weights, weight_base, threshold, gpu):
     preds = []
     for weight in weights:
         model_weight = torch.load(os.path.join(weight_base, weight))
-        pipeline.task.load_state_dict(model_weight)
+        pipeline.task.load_state_dict(model_weight, strict=False)
         pred, target = pipeline.predict_and_target_dataset(pipeline.test_set, 500, 50)
         preds.append(pred)
     pred_sum = torch.zeros_like(preds[0])
@@ -87,12 +87,12 @@ def main(gpu):
                 gpu=gpu,
             )
             print(f'Fold {fold}: result {result}')
-            results.append({'model': param['model'], 'fold': fold, 'threshold': threshold, **result})
             
-            # save results
-            df = pd.DataFrame(results)
-            df.to_csv('result/atpbind3d_esm_stats.csv', index=False)
-    
+            record_df = read_initial_csv('result/atpbind3d_esm_stats.csv')
+            record_df = pd.concat([record_df, pd.DataFrame([
+                {'model': param['model'], 'fold': fold, 'threshold': threshold, **result}
+            ])])
+            record_df.to_csv('result/atpbind3d_esm_stats.csv', index=False)
     
     
     
