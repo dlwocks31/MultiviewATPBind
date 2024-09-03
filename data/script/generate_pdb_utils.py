@@ -15,6 +15,7 @@ import random
 class ChainSelect(Select):
     def __init__(self, chain):
         self.chain = chain
+        self.residue_to_altloc = {}
 
     def accept_chain(self, chain):
         if chain.get_id() == self.chain:
@@ -23,19 +24,31 @@ class ChainSelect(Select):
             return 0
 
     def accept_residue(self, residue):
-        hetflag, _, _ = residue.get_id()
-        return hetflag == " "  # Should only accept normal residue (not HETATM)
+        hetflag, resseq, icode = residue.get_id()
+        return hetflag == " " and icode == " "  # Accept normal residues without insertion code
 
     def accept_atom(self, atom):
         # Should only accept backbone atoms
-        # to get backbone atom: ["N", "CA", "C", "O"]
-        return atom.get_name() in ["CA"]
-        
-        # if (not atom.is_disordered()) or atom.get_altloc() == "A":
-        #     atom.set_altloc(" ")  # Eliminate alt location ID before output.
-        #     return True
-        # else:  # Alt location was not one to be output.
-        #     return False
+        if atom.get_name() not in ["N", "CA", "C", "O"]:
+            return False
+        # Ref: https://biopython.org/wiki/Remove_PDB_disordered_atoms
+        if not atom.is_disordered():
+            return True
+        else:
+            # Find all disordered atoms in the residue
+            residue_id = atom.get_parent().get_id()[1]
+            if residue_id not in self.residue_to_altloc:
+                self.residue_to_altloc[residue_id] = atom.get_altloc()
+                # print(f"Debug: Residue ID: {residue_id}, Altloc: {atom.get_altloc()}, in dict: {self.residue_to_altloc[residue_id]}. First seen")
+                res = True
+            else:
+                # print(f"Debug: Residue ID: {residue_id}, Altloc: {atom.get_altloc()}, in dict: {self.residue_to_altloc[residue_id]}, return: {self.residue_to_altloc[residue_id] == atom.get_altloc()}")
+                res = self.residue_to_altloc[residue_id] == atom.get_altloc()
+            if res and atom.get_altloc() != 'A':
+                # Set to standard altloc. If altloc is not A, it will be ignored by torchprotein
+                atom.set_altloc('A')
+            return res
+
 
 
 class LCSSelect(Select):
@@ -87,32 +100,41 @@ def read_file(path):
 
 
 def write_parsed_pdb_from_pdb_id(atpbind_sequence, pdb_id, save_pdb_folder):
-    if os.path.exists("./pdb_tmp/%s.pdb" % pdb_id[:4]):
-        file_path = "./pdb_tmp/%s.pdb" % pdb_id[:4]
+    # 0th stage: download raw pdb file
+    pdb_tmp_folder = '../pdb_tmp'
+    if os.path.exists(f"{pdb_tmp_folder}/{pdb_id[:4]}.pdb"):
+        file_path = f"{pdb_tmp_folder}/{pdb_id[:4]}.pdb"
     else:
         file_path = utils.download(
-            "https://files.rcsb.org/download/%s.pdb" % pdb_id[:4], "./pdb_tmp")
+            f"https://files.rcsb.org/download/{pdb_id[:4]}.pdb", pdb_tmp_folder)
 
-    # First stage: filter for desired chain, normal residue, backbone atom
+    # First stage: filter for desired chain, normal residue, backbone atom, save it back to pdb_tmp_folder
     chain_id = pdb_id[4]
     p = PDBParser(PERMISSIVE=1)
     structure = p.get_structure(pdb_id[:4], file_path)
     select = ChainSelect(chain_id)
     pdbio = PDBIO()
     pdbio.set_structure(structure)
-    pdbio.save('pdb_tmp/%s.pdb' % pdb_id, select)
+    pdbio.save(f'{pdb_tmp_folder}/{pdb_id}.pdb', select)
 
     # Second Stage: filter for longest substring
-    file_path = 'pdb_tmp/%s.pdb' % pdb_id
+    file_path = f'{pdb_tmp_folder}/{pdb_id}.pdb'
     p = PDBParser(PERMISSIVE=1)
     structure = p.get_structure(pdb_id, file_path)
     raw_sequence = ''.join(three_to_one_letter[residue.get_resname()]
                            for residue in structure.get_residues())
-    idx_to_use = pylcs.lcs_string_idx(atpbind_sequence, raw_sequence)
-    if -1 in idx_to_use:
-        print('warn: -1 in lss. Using lcs instead. %s' % pdb_id)
-        idx_to_use = pylcs.lcs_sequence_idx(atpbind_sequence, raw_sequence)
-        assert(-1 not in idx_to_use)
+    if atpbind_sequence == raw_sequence:
+        print(f'{pdb_id} is already aligned')
+        idx_to_use = list(range(len(atpbind_sequence)))
+    else:
+        print(f'{pdb_id} is not aligned')
+        idx_to_use = pylcs.lcs_string_idx(atpbind_sequence, raw_sequence)
+        if -1 in idx_to_use:
+            print(f'{pdb_id}: warn: -1 in lss. Using lcs instead.')
+            idx_to_use = pylcs.lcs_sequence_idx(atpbind_sequence, raw_sequence)
+            if -1 in idx_to_use:
+                print(f'{pdb_id}: error: -1 in lcs. using full sequence instead')
+                idx_to_use = list(range(len(atpbind_sequence)))
     resseq_ids = [residue.get_id()[1] for i, residue in enumerate(
         structure.get_residues()) if i in idx_to_use]
     select = LCSSelect(resseq_ids)
@@ -124,13 +146,7 @@ def write_parsed_pdb_from_pdb_id(atpbind_sequence, pdb_id, save_pdb_folder):
 def generate_all_in_file(filename, save_pdb_folder):
     _, sequences, _, pdb_ids = read_file(filename)
     
-    deny_list = ['3CRCA', '2C7EG', '3J2TB', '3VNUA',
-                 '4QREA', '5J1SB', '1MABB', '3LEVH', '3BG5A',
-                 '4TU0A',
-                 ]
     for sequence, pdb_id in zip(sequences, pdb_ids):
-        if pdb_id not in deny_list:
-            continue
         print('Generating %s..' % pdb_id)
         write_parsed_pdb_from_pdb_id(sequence, pdb_id, save_pdb_folder)
 
@@ -147,12 +163,13 @@ def try_loading_pdb(file_path):
 def validate(base_path, filename):
     _, sequences, _, pdb_ids = read_file(os.path.join(base_path, filename))
     for sequence, pdb_id in zip(sequences, pdb_ids):
-        # print('Validating %s..' % pdb_id)
+        print('Validating %s..' % pdb_id)
         file_path = os.path.join(base_path, '%s.pdb' % pdb_id)
         protein = try_loading_pdb(file_path)
         if not protein:
-            raise Exception('Error loading %s' % file_path)
-        
+            print(f'{pdb_id}: error: protein not loaded')
+            continue
+
         # Get sequence from protein after graph construction model leaving only alpha carbon nodes
         graph_construction_model = layers.GraphConstruction(
             node_layers=[geometry.AlphaCarbonNode()],
@@ -270,10 +287,10 @@ if __name__ == '__main__':
     # task = args.task
     # dataset_type = args.dataset
     
-    # print('Generate train set..')
-    # generate_all_in_file('../../lib/train.txt')
-    # print('Generate test set..')
-    # generate_all_in_file('../../lib/test.txt')
+    print('Generate train set..')
+    generate_all_in_file('../atp/train.txt', 'atp')
+    print('Generate test set..')
+    generate_all_in_file('../atp/test.txt', 'atp')
     
     # print('Generating..')
     # generate_all_in_file(f'../{dataset_type}/{dataset_type}_binding.txt', dataset_type)
@@ -307,5 +324,6 @@ if __name__ == '__main__':
     # generate_all_in_file('../atp/train.txt', 'atp')
     
     # validate:
-    base_path = os.path.join(os.path.dirname(__file__), f'../atp')
+    base_path = os.path.join(os.path.dirname(__file__), '..', 'atp')
     validate(base_path, 'train.txt')
+    validate(base_path, 'test.txt')

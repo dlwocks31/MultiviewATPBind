@@ -187,3 +187,5 @@ preds/*
 result_cv/*
 
 test.ipynb
+
+data/pdb_tmp/
