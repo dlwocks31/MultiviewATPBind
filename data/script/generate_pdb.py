@@ -6,11 +6,11 @@ import os
 import pylcs
 from torchdrug import data
 import warnings
-from itertools import combinations
-import random
+import logging
 
 # Reference: https://stackoverflow.com/a/47584587/12134820
 
+logger = logging.getLogger(__name__)
 
 class ChainSelect(Select):
     def __init__(self, chain):
@@ -124,16 +124,16 @@ def write_parsed_pdb_from_pdb_id(atpbind_sequence, pdb_id, save_pdb_folder):
     raw_sequence = ''.join(three_to_one_letter[residue.get_resname()]
                            for residue in structure.get_residues())
     if atpbind_sequence == raw_sequence:
-        print(f'{pdb_id} is already aligned')
+        logger.info(f'{pdb_id} is already aligned')
         idx_to_use = list(range(len(atpbind_sequence)))
     else:
-        print(f'{pdb_id} is not aligned')
+        logger.info(f'{pdb_id} is not aligned')
         idx_to_use = pylcs.lcs_string_idx(atpbind_sequence, raw_sequence)
         if -1 in idx_to_use:
-            print(f'{pdb_id}: warn: -1 in lss. Using lcs instead.')
+            logger.warning(f'{pdb_id}: -1 in lss. Using lcs instead.')
             idx_to_use = pylcs.lcs_sequence_idx(atpbind_sequence, raw_sequence)
             if -1 in idx_to_use:
-                print(f'{pdb_id}: error: -1 in lcs. using full sequence instead')
+                logger.error(f'{pdb_id}: -1 in lcs. using full sequence instead')
                 idx_to_use = list(range(len(atpbind_sequence)))
     resseq_ids = [residue.get_id()[1] for i, residue in enumerate(
         structure.get_residues()) if i in idx_to_use]
@@ -147,7 +147,7 @@ def generate_all_in_file(filename, save_pdb_folder):
     _, sequences, _, pdb_ids = read_file(filename)
     
     for sequence, pdb_id in zip(sequences, pdb_ids):
-        print('Generating %s..' % pdb_id)
+        logger.info('Generating %s..' % pdb_id)
         write_parsed_pdb_from_pdb_id(sequence, pdb_id, save_pdb_folder)
 
 
@@ -161,13 +161,20 @@ def try_loading_pdb(file_path):
 
 
 def validate(base_path, filename):
+    logger = logging.getLogger('validate')
     _, sequences, _, pdb_ids = read_file(os.path.join(base_path, filename))
+    validation_results = []
     for sequence, pdb_id in zip(sequences, pdb_ids):
-        print('Validating %s..' % pdb_id)
+        logger.debug('Validating %s..', pdb_id)
         file_path = os.path.join(base_path, '%s.pdb' % pdb_id)
         protein = try_loading_pdb(file_path)
         if not protein:
-            print(f'{pdb_id}: error: protein not loaded')
+            validation_results.append({
+                'pdb_id': pdb_id,
+                'status': 'error',
+                'message': 'protein not loaded'
+            })
+            logger.error('%s: error: protein not loaded', pdb_id)
             continue
 
         # Get sequence from protein after graph construction model leaving only alpha carbon nodes
@@ -188,77 +195,40 @@ def validate(base_path, filename):
             i for i in batch.to_sequence()[0] if i != '.'
         )
         if protein_sequence != sequence:
-            print('validation failed for %s: sequence unmatch. length of alphacarbons: %d, length of given sequence: %d' %
-                  (pdb_id, len(protein_sequence), len(sequence)))
-            print('sequence from protein')
-            print(protein_sequence)
-            print('seqeuence from txt')
-            print(sequence)
+            result = {
+                'pdb_id': pdb_id,
+                'status': 'failed',
+                'reason': 'sequence unmatch',
+                'alpha_carbon_length': len(protein_sequence),
+                'given_sequence_length': len(sequence),
+                'protein_sequence': protein_sequence,
+                'given_sequence': sequence
+            }
+            validation_results.append(result)
+            logger.warning('validation failed for %s: sequence unmatch. length of alphacarbons: %d, length of given sequence: %d',
+                           pdb_id, len(protein_sequence), len(sequence))
+            logger.debug('sequence from protein: %s', protein_sequence)
+            logger.debug('sequence from txt: %s', sequence)
         elif protein.num_residue != len(sequence):
-            print('validation failed for %s: length unmatch. len: %d %d' %
-                  (pdb_id, protein.num_residue, len(sequence)))
-            continue
-
-
-def find_close_edit_distance(base_path, filename, ratio_threshold=0.6, log_limit=10):
-    _, sequences, _, pdb_ids = read_file(os.path.join(base_path, filename))
-    iter = zip(sequences, pdb_ids)
-    unions = [[id] for id in pdb_ids]
-    ratios = []
-    for (sequence1, pdb_id1), (sequence2, pdb_id2) in combinations(iter, 2):
-        edit_distance = pylcs.edit_distance(sequence1, sequence2)
-        ratio = edit_distance * 2 / (len(sequence1) + len(sequence2))
-        ratios.append((ratio, edit_distance, pdb_id1, pdb_id2))
-        if ratio < ratio_threshold:
-            # merge two list
-            def find_union_idx(id):
-                for i, union in enumerate(unions):
-                    if id in union:
-                        return i
-                return None
-        
-            idx1 = find_union_idx(pdb_id1)
-            idx2 = find_union_idx(pdb_id2)
-            if idx1 is None or idx2 is None:
-                print('error: union not found')
-                continue
-            if idx1 == idx2:
-                continue
-            unions[idx1] += unions[idx2]
-            unions.pop(idx2)
+            result = {
+                'pdb_id': pdb_id,
+                'status': 'failed',
+                'reason': 'length unmatch',
+                'protein_residue_count': protein.num_residue,
+                'sequence_length': len(sequence)
+            }
+            validation_results.append(result)
+            logger.warning('validation failed for %s: length unmatch. len: %d %d',
+                           pdb_id, protein.num_residue, len(sequence))
+        else:
+            validation_results.append({
+                'pdb_id': pdb_id,
+                'status': 'success'
+            })
+            logger.info('validation successful for %s', pdb_id)
     
-    unions.sort(key=lambda x: len(x), reverse=True)
-    print(f'{len(unions)} groups:')
-    print(unions)
-    ratios.sort(key=lambda x: x[0])
-    if log_limit > 0:
-        print(f'{log_limit} closest pairs:')
-        for ratio, edit_distance, pdb_id1, pdb_id2 in ratios[:log_limit]:
-            print(f'{pdb_id1}-{pdb_id2}: ratio:{ratio}, distance: {edit_distance}')
-        return unions
+    return validation_results
 
-def shuffle_lines(filename):
-    '''
-    Read from ATPBind dataset.
-    '''
-    with open(filename) as f:
-        lines = f.readlines()
-        lines = list(lines)
-        print(lines)
-        
-    
-    with open(filename, 'w') as f:
-        random.shuffle(lines)
-        f.writelines(lines)
-        
-def save_lines(filename, pdb_id_order):
-    with open(filename) as f:
-        lines = f.readlines()
-        lines = list(lines)
-
-    lines.sort(key=lambda x: pdb_id_order.index(x.split(' : ')[0]))    
-    with open(filename, 'w') as f:
-        f.writelines(lines)
 
 '''
 Some generated PDB files can't be loaded using data.Protein.from_pdb because of errors
@@ -275,55 +245,49 @@ original sequence in ATPBind dataset, so this is probably due to different imple
 of loading PDB files in bioPython and torchprotein. (Need to investigate further)
 The affected PDB files are 5J1SB, 1MABB, 3LEVH, and 3BG5A.
 '''
+def parse_args():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dataset', type=str, required=True, help='Dataset to process (atp, imatinib, dasatinib, or bosutinib)')
+    parser.add_argument('--log_level', type=str, default='INFO', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
+                        help='Set the logging level')
+    args = parser.parse_args()
+    return args
+
 if __name__ == '__main__':
     warnings.filterwarnings("ignore", message=".*discontinuous at line.*")
     warnings.filterwarnings("ignore", message=".*Unknown.*")
-    # import argparse
-    # parser = argparse.ArgumentParser()
-    # parser.add_argument('--task', type=str)
-    # parser.add_argument('--dataset', type=str)
-    # args = parser.parse_args()
+    args = parse_args()
+    
+    # Set up logging
+    logging.basicConfig(level=getattr(logging, args.log_level.upper()))
 
-    # task = args.task
-    # dataset_type = args.dataset
+    if args.dataset == 'atp':
+        print('--- Generate train set.. ---')
+        generate_all_in_file('../atp/train.txt', 'atp')
+        print('--- Generate test set.. ---')
+        generate_all_in_file('../atp/test.txt', 'atp')
+        print('--- Validate.. ---')
+        base_path = os.path.join(os.path.dirname(__file__), '..', 'atp')
+        result = []
+        result.extend(validate(base_path, 'train.txt'))
+        result.extend(validate(base_path, 'test.txt'))
+    elif args.dataset in ['imatinib', 'dasatinib', 'bosutinib']:
+        print('--- Generate train set.. ---')
+        generate_all_in_file(f'../{args.dataset}/{args.dataset}_binding.txt', args.dataset)
+        print('--- Validate.. ---')
+        base_path = os.path.join(os.path.dirname(__file__), '..', args.dataset)
+        result = validate(base_path, f'{args.dataset}_binding.txt')
+    else:
+        raise ValueError(f"Invalid dataset: {args.dataset}")
     
-    print('Generate train set..')
-    generate_all_in_file('../atp/train.txt', 'atp')
-    print('Generate test set..')
-    generate_all_in_file('../atp/test.txt', 'atp')
-    
-    # print('Generating..')
-    # generate_all_in_file(f'../{dataset_type}/{dataset_type}_binding.txt', dataset_type)
-    
-    # if args.task == 'edit':
-    #     print(f'Finding close edit distance..')
-    #     base_path = os.path.join(os.path.dirname(__file__), f'../../data/{dataset_type}')
-    #     find_close_edit_distance(base_path, f'{dataset_type}_binding.txt', ratio_threshold=0.6)
-    
-    # if args.task == 'edit_save':
-    #     print(f'Finding close edit distance..')
-    #     base_path = os.path.join(os.path.dirname(__file__), f'../../data/{dataset_type}')
-    #     unions = find_close_edit_distance(base_path, f'{dataset_type}_binding.txt', ratio_threshold=0.6)
-    #     pdb_id_order = []
-    #     for union in unions:
-    #         pdb_id_order += union
-    #     random.shuffle(pdb_id_order[:int(len(pdb_id_order)*0.8)])
-    #     save_lines(os.path.join(base_path, f'{dataset_type}_binding.txt'), pdb_id_order)
-    # base_path = os.path.join(os.path.dirname(__file__), f'../../lib')
-    # find_close_edit_distance(base_path, f'test.txt')
+    print('--- Validation Results ---')
+    for item in result:
+        if item['status'] != 'success':
+            print(f"PDB ID: {item['pdb_id']}")
+            print(f"Status: {item['status']}")
+            if 'reason' in item:
+                print(f"Reason: {item['reason']}")
+            print(f"Message: {item['message']}")
+            print()
 
-    # print('Validating..')
-    # base_path = os.path.join(os.path.dirname(__file__), f'../../data/{dataset_type}')
-    # validate(base_path, f'{dataset_type}_binding.txt')
-
-    # print('Shuffling..')
-    # base_path = os.path.join(os.path.dirname(__file__), f'../{dataset_type}/{dataset_type}_binding.txt')
-    # shuffle_lines(base_path)
-    
-    # genreate
-    # generate_all_in_file('../atp/train.txt', 'atp')
-    
-    # validate:
-    base_path = os.path.join(os.path.dirname(__file__), '..', 'atp')
-    validate(base_path, 'train.txt')
-    validate(base_path, 'test.txt')
