@@ -1,10 +1,22 @@
+from torch_geometric import data as gep_data
 import torch
-from torch.utils import data as torch_data
 from torchdrug import data
-from random import Random
 import os
 from collections import defaultdict
 import numpy as np
+
+from gvp import data as gvp_data
+from torch import utils
+from Bio.PDB import PDBParser
+from .gvp_util import parse_protein_to_json_record
+from rdkit import Chem
+import logging
+import tqdm
+from lib.utils import protein_to_sequence
+
+logger = logging.getLogger(__name__)
+
+
 
 
 class ATPBindTestEsm(data.ProteinDataset):
@@ -56,24 +68,68 @@ class ATPBindTestEsm(data.ProteinDataset):
     
     def split(self, valid_fold_num=0):
         splits = [
-            torch_data.Subset(self, [0]),  # train
-            torch_data.Subset(self, [0]),  # valid
-            torch_data.Subset(self, list(range(self.test_sample_count))),  # test
+            utils.data.Subset(self, [0]),  # train
+            utils.data.Subset(self, [0]),  # valid
+            utils.data.Subset(self, list(range(self.test_sample_count))),  # test
         ]
         return splits
     
 
 class ATPBind3D(data.ProteinDataset):
     splits = ["train", "valid", "test"]
-    # see `generate_pdb.py`
-    # also, 4TU0A includes two alpha carbon that would not be parsed with torchprotein (number 7 / 128)
-    # This is probably because non-standard pdb file, or non-standard torchprotein parser
-    deny_list = [
-                 ]
 
     fold_count = 5
     
-    def __init__(self, path=None, limit=-1, to_slice=False, max_slice_length=500, padding=50, **kwargs):
+    def load_pdbs(self, pdb_files, transform=None, lazy=False, verbose=0, **kwargs):
+        """
+        Adapted from torchdrug.data.ProteinDataset.load_pdbs
+        
+        Load the dataset from pdb files.
+
+        Parameters:
+            pdb_files (list of str): pdb file names
+            transform (Callable, optional): protein sequence transformation function
+            lazy (bool, optional): if lazy mode is used, the proteins are processed in the dataloader.
+                This may slow down the data loading process, but save a lot of CPU memory and dataset loading time.
+            verbose (int, optional): output verbose level
+            **kwargs
+        """
+        num_sample = len(pdb_files)
+
+        self.transform = transform
+        self.lazy = lazy
+        self.kwargs = kwargs
+        self.data = []
+        self.pdb_files = []
+        self.sequences = []
+
+        if verbose:
+            pdb_files = tqdm(pdb_files, "Constructing proteins from pdbs")
+        for i, pdb_file in enumerate(pdb_files):
+            if not lazy or i == 0:
+                mol = Chem.MolFromPDBFile(pdb_file, sanitize=False) # sanitize=False is added from original code
+                if not mol:
+                    logger.debug("Can't construct molecule from pdb file `%s`. Ignore this sample." % pdb_file)
+                    continue
+                protein = data.Protein.from_molecule(mol, **kwargs)
+                if not protein:
+                    logger.debug("Can't construct protein from pdb file `%s`. Ignore this sample." % pdb_file)
+                    continue
+            else:
+                protein = None
+            if hasattr(protein, "residue_feature"):
+                with protein.residue():
+                    protein.residue_feature = protein.residue_feature.to_sparse()
+            self.data.append(protein)
+            self.pdb_files.append(pdb_file)
+            self.sequences.append(protein.to_sequence() if protein else None)
+    
+    def load_proteins(self, proteins, **kwargs):
+        self.data = proteins
+        self.pdb_files = [None] * len(proteins)
+        self.sequences = [protein_to_sequence(protein) if protein else None for protein in proteins]
+    
+    def __init__(self, proteins=None, path=None, limit=-1, to_slice=False, max_slice_length=500, padding=50, transform=None):
         if path is None:
             joined_path = os.path.join(os.path.dirname(__file__), '../data/atp')
             data_path = os.path.normpath(joined_path)
@@ -81,16 +137,16 @@ class ATPBind3D(data.ProteinDataset):
         pdb_files = [os.path.join(data_path, f'{pdb_id}.pdb')
                      for pdb_id in pdb_ids]
 
-        self.load_pdbs(pdb_files, **kwargs)
+        self.load_pdbs(pdb_files, transform=transform, atom_feature=None)
         self.targets = defaultdict(list)
         self.targets["binding"] = targets["binding"]
 
         assert (len(self.data) == len(self.targets["binding"]))
         for protein, binding in zip(self.data, self.targets["binding"]):
             if protein.num_residue != len(binding):
-                print(
-                    f'ERROR: protein: {protein.num_residue}, binding: {len(binding)}')
+                print(f'ERROR: protein: {protein.num_residue}, binding: {len(binding)}')
 
+        logger.info(f'ATPBind3D: loaded {len(self.data)} proteins and {len(self.targets["binding"])} targets')
         if to_slice:
             new_data = []
             new_targets = []
@@ -108,7 +164,19 @@ class ATPBind3D(data.ProteinDataset):
             self.targets["binding"] = new_targets + self.targets["binding"][self.train_sample_count:]
             self.train_sample_count = len(new_data)
             
+            logger.info(f'ATPBind3D: sliced original data into {len(self.data)} proteins')
+            
         self.fold_ranges = np.array_split(np.arange(self.train_sample_count), self.fold_count)
+        
+        # load gvp data
+        gvp_json_records = [parse_protein_to_json_record(protein)
+                            for protein in self.data]
+        self.gvp_dataset = gvp_data.ProteinGraphDataset(gvp_json_records)
+        assert(len(self.data) == len(self.gvp_dataset))
+        for protein, json_record in zip(self.data, gvp_json_records):
+            if protein.num_residue != json_record['coords'].shape[0]:
+                print(f'ERROR: protein: {protein.num_residue}, gvp_graph: {json_record["coords"].shape[0]}')
+        logger.info(f'ATPBind3D: loaded {len(self.gvp_dataset)} gvp graphs. length of data: {len(self.data)}')
 
 
     def initialize_mask_and_weights(self, masks=None, weights=None):
@@ -138,23 +206,20 @@ class ATPBind3D(data.ProteinDataset):
 
         for file in ['train.txt', 'test.txt']:
             num_samples, seq, tgt, ids = read_file(os.path.join(path, file))
-            # Filter sequences, targets, and pdb_ids based on deny_list
-            filtered_seq, filtered_tgt, filtered_ids = zip(
-                *[(s, t, i) for s, t, i in zip(seq, tgt, ids) if i not in self.deny_list])
 
             if limit > 0:
-                filtered_seq = filtered_seq[:limit]
-                filtered_tgt = filtered_tgt[:limit]
-                filtered_ids = filtered_ids[:limit]
+                seq = seq[:limit]
+                tgt = tgt[:limit]
+                ids = ids[:limit]
 
-            sequences += filtered_seq
-            targets += filtered_tgt
-            pdb_ids += filtered_ids
+            sequences += seq
+            targets += tgt
+            pdb_ids += ids
 
             if file == 'train.txt':
-                self.train_sample_count = len(filtered_seq)
+                self.train_sample_count = len(seq)
             elif file == 'test.txt':
-                self.test_sample_count = len(filtered_seq)
+                self.test_sample_count = len(seq)
             else:
                 raise NotImplementedError
 
@@ -180,19 +245,19 @@ class ATPBind3D(data.ProteinDataset):
         return self.fold_ranges[self.valid_fold_num]
 
     def get_item(self, index):
-        if self.lazy:
-            graph = data.Protein.from_sequence(
-                self.sequences[index], **self.kwargs)
-        else:
-            graph = self.data[index]
+        graph = self.data[index]
+        gvp_data = self.gvp_dataset[index]
+        
         with graph.residue():
             target = torch.as_tensor(
                 self.targets["binding"][index], dtype=torch.long).view(-1, 1)
             graph.target = target
+            
             graph.mask = self._get_mask(index).view(-1, 1)
             graph.weight = self._get_weight(index).view(-1, 1)
         graph.view = 'residue'
-        item = {"graph": graph}
+        item = {"graph": graph, "gvp_data": gvp_data}
+        # print(f'XXX in datasets.py, target.shape: {target.shape}, targets["binding"].shape: {self.targets["binding"].shape}')
         if self.transform:
             item = self.transform(item)
         # print(f'get_item {index}, mask {item["graph"].mask.sum()} / {len(item["graph"].mask)}')
@@ -204,11 +269,11 @@ class ATPBind3D(data.ProteinDataset):
         self.valid_fold_num = valid_fold_num
 
         splits = [
-            torch_data.Subset(self, to_int_list(
+            utils.data.Subset(self, to_int_list(
                 np.concatenate(self.fold_ranges[:valid_fold_num] + self.fold_ranges[valid_fold_num+1:])
             )), # train
-            torch_data.Subset(self, to_int_list(self.fold_ranges[valid_fold_num])), # valid
-            torch_data.Subset(self, list(range(self.train_sample_count, self.train_sample_count + self.test_sample_count))), # test
+            utils.data.Subset(self, to_int_list(self.fold_ranges[valid_fold_num])), # valid
+            utils.data.Subset(self, list(range(self.train_sample_count, self.train_sample_count + self.test_sample_count))), # test
         ]
         return splits
 
@@ -330,13 +395,13 @@ class CustomBindDataset(data.ProteinDataset):
 
         # Create train split excluding the validation fold
         train_indices = [i for fold in (self.fold_ranges[:valid_fold_num] + self.fold_ranges[valid_fold_num + 1:]) for i in to_int_list(fold)]
-        train_split = torch_data.Subset(self, train_indices)
+        train_split = utils.data.Subset(self, train_indices)
 
         # Create validation split using the validation fold
-        validation_split = torch_data.Subset(self, to_int_list(self.fold_ranges[valid_fold_num]))
+        validation_split = utils.data.Subset(self, to_int_list(self.fold_ranges[valid_fold_num]))
 
         # Create test split based on the predefined range
-        test_split = torch_data.Subset(self, list(range(self.train_sample_count, self.train_sample_count + self.test_sample_count)))
+        test_split = utils.data.Subset(self, list(range(self.train_sample_count, self.train_sample_count + self.test_sample_count)))
         return [train_split, validation_split, test_split]
 
     
@@ -364,17 +429,6 @@ class CustomBindDataset(data.ProteinDataset):
             ]
         
         
-        if weights is not None:
-            print('Initialize Weighting: fixed weight')
-            self.weights = weights
-        else:
-            print('Initialize Weighting: all ones')
-            self.weights = [
-                torch.ones(len(target)).float()
-                for target in self.targets["binding"]
-            ]
-        return self
-
         if weights is not None:
             print('Initialize Weighting: fixed weight')
             self.weights = weights

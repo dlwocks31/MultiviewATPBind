@@ -3,6 +3,11 @@ from torch import Tensor
 from transformers import BertModel, BertTokenizer, AutoTokenizer, EsmModel
 import torch
 from torchdrug import core, models
+from gvp.models import GVPConvLayer, GVP, LayerNorm
+import torch.nn as nn
+import logging
+
+logger = logging.getLogger(__name__)
 
 def separate_alphabets(text):
     separated_text = ""
@@ -168,3 +173,74 @@ class GearNetWrapModel(torch.nn.Module, core.Configurable):
 
     def load_state_dict(self, state_dict: OrderedDict[str, Tensor], strict: bool = True):
         return self.model.load_state_dict(state_dict, strict)
+
+
+class GVPWrapModel(torch.nn.Module, core.Configurable):
+    '''
+    Adapted from CPDModel of gvp-pytorch repository
+    '''
+    def __init__(self, node_in_dim, node_h_dim, edge_in_dim, edge_h_dim, gpu, num_layers=3, drop_rate=0.1, output_dim=1):
+        super().__init__()
+        logger.info(f'GVPWrapModel: node_in_dim: {node_in_dim}, node_h_dim: {node_h_dim}, edge_in_dim: {edge_in_dim}, edge_h_dim: {edge_h_dim}, num_layers: {num_layers}, drop_rate: {drop_rate}, output_dim: {output_dim}')
+        self.gpu = gpu
+        self.output_dim = output_dim
+
+        self.W_v = nn.Sequential(
+            GVP(node_in_dim, node_h_dim, activations=(None, None)),
+            LayerNorm(node_h_dim)
+        )
+        self.W_e = nn.Sequential(
+            GVP(edge_in_dim, edge_h_dim, activations=(None, None)),
+            LayerNorm(edge_h_dim)
+        )
+        
+        self.encoder_layers = nn.ModuleList(
+                GVPConvLayer(node_h_dim, edge_h_dim, drop_rate=drop_rate) 
+            for _ in range(num_layers))
+        
+        self.W_s = nn.Embedding(20, 20)
+        edge_h_dim = (edge_h_dim[0] + 20, edge_h_dim[1])
+      
+        self.decoder_layers = nn.ModuleList(
+                GVPConvLayer(node_h_dim, edge_h_dim, 
+                             drop_rate=drop_rate, autoregressive=True) 
+            for _ in range(num_layers))
+        
+        self.W_out = GVP(node_h_dim, (self.output_dim, 0), activations=(None, None))
+    
+    def forward(self, graph, gvp_data, all_loss=None, metric=None):
+        '''
+        Forward pass to be used at train-time, or evaluating likelihood.
+        
+        :param h_V: tuple (s, V) of node embeddings
+        :param edge_index: `torch.Tensor` of shape [2, num_edges]
+        :param h_E: tuple (s, V) of edge embeddings
+        :param seq: int `torch.Tensor` of shape [num_nodes]
+        '''
+        h_V = (gvp_data['node_s'], gvp_data['node_v'])
+        h_E = (gvp_data['edge_s'], gvp_data['edge_v'])
+        edge_index = gvp_data['edge_index']
+        seq = gvp_data['seq']
+
+        h_V = self.W_v(h_V)
+        h_E = self.W_e(h_E)
+
+        for layer in self.encoder_layers:
+            h_V = layer(h_V, edge_index, h_E)
+
+        encoder_embeddings = h_V
+
+        h_S = self.W_s(seq)
+        h_S = h_S[edge_index[0]]
+        h_S[edge_index[0] >= edge_index[1]] = 0
+        h_E = (torch.cat([h_E[0], h_S], dim=-1), h_E[1])
+
+        for layer in self.decoder_layers:
+            h_V = layer(h_V, edge_index, h_E,
+                        autoregressive_x=encoder_embeddings)
+
+        logits = self.W_out(h_V)
+
+        return {
+            "node_feature": logits
+        }

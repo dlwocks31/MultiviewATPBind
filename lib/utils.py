@@ -28,6 +28,12 @@ def read_initial_csv(path):
         return pd.DataFrame()
 
 
+def protein_to_sequence(protein):
+    seq = protein.to_sequence()
+    if isinstance(seq, list):
+        seq = seq[0]
+    return ''.join(i for i in seq if i != '.')
+
 def compute_mcc_from_cm(tp, tn, fp, fn):
     # Calculate the denominator
     denominator = ((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn)) ** 0.5

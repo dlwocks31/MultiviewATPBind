@@ -17,7 +17,7 @@ class NodePropertyPrediction(tasks.Task, core.Configurable):
     def __init__(self, model, criterion="bce", metric=("macro_auprc", "macro_auroc"), num_mlp_layer=1,
                  normalization=True, num_class=None, verbose=0,
                  graph_construction_model=None,
-                 threshold=-1.5,
+                 threshold=-1.5, node_feature_type="graph_node_feature",
                  ):
         super(NodePropertyPrediction, self).__init__()
         self.model = model
@@ -30,6 +30,7 @@ class NodePropertyPrediction(tasks.Task, core.Configurable):
         self.verbose = verbose
         self.graph_construction_model = graph_construction_model
         self.threshold = threshold
+        self.node_feature_type = node_feature_type
 
     def preprocess(self, train_set, valid_set, test_set):
         """
@@ -62,11 +63,15 @@ class NodePropertyPrediction(tasks.Task, core.Configurable):
         if self.graph_construction_model:
             graph = self.graph_construction_model(graph)
         
-        node_feature = graph.node_feature.float()
-        # if node_feature is of type `torch.sparse.FloatTensor`
-        # Error like "Could not run 'aten::view' with arguments from the 'SparseCPU' backend" occurs. Thus do this conversion.
-        if 'sparse' in node_feature.type():
-            node_feature = node_feature.to_dense()
+        if self.node_feature_type == "graph_node_feature":
+            node_feature = graph.node_feature.float()
+            # if node_feature is of type `torch.sparse.FloatTensor`
+            # Error like "Could not run 'aten::view' with arguments from the 'SparseCPU' backend" occurs. Thus do this conversion.
+            if 'sparse' in node_feature.type():
+                node_feature = node_feature.to_dense()
+        elif self.node_feature_type == "gvp_data":
+            node_feature = batch["gvp_data"]
+
         output = self.model(graph, node_feature, all_loss=all_loss, metric=metric)
         if self.view in ["node", "atom"]:
             output_feature = output["node_feature"]

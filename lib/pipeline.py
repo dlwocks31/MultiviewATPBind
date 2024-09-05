@@ -1,6 +1,5 @@
 import contextlib
 import logging
-from copy import deepcopy
 from datetime import datetime, timedelta
 from functools import cache
 from statistics import mean
@@ -10,18 +9,21 @@ import pandas as pd
 import torch
 from torch.nn import functional as F
 from torch.utils import data as torch_data
-from torchdrug import (core, data, layers, metrics, models, tasks, transforms,
+from torchdrug import (core, data, layers, models, transforms,
                        utils)
-from torchdrug.core import Registry as R
+import torch_geometric
+from gvp.data import ProteinGraphDataset
 from torchdrug.layers import functional, geometry
+from collections.abc import Mapping, Sequence
 
 from .bert import BertWrapModel, EsmWrapModel
-from .custom_models import GearNetWrapModel, LMGearNetModel
+from .custom_models import GearNetWrapModel, LMGearNetModel, GVPWrapModel
 from .datasets import (CUSTOM_DATASET_TYPES, ATPBind3D, CustomBindDataset, ATPBindTestEsm,
                        get_slices, protein_to_slices)
 from .lr_scheduler import CyclicLR, ExponentialLR
 from .tasks import NodePropertyPrediction
 from .utils import dict_tensor_to_num, round_dict
+from .gvp_util import parse_protein_to_json_record
 
 
 class DisableLogger():
@@ -58,6 +60,45 @@ def get_dataset(dataset, to_slice=True, max_slice_length=550, padding=100):
     else:
         raise ValueError('Dataset is not supported')
 
+def graph_collate_with_gvp(batch):
+    """
+    Adapted from torchdrug.data.dataloader.graph_collate
+    
+    Convert any list of same nested container into a container of tensors.
+
+    For instances of :class:`data.Graph <torchdrug.data.Graph>`, they are collated
+    by :meth:`data.Graph.pack <torchdrug.data.Graph.pack>`.
+
+    Parameters:
+        batch (list): list of samples with the same nested container
+    """
+    elem = batch[0]
+    if isinstance(elem, torch.Tensor):
+        out = None
+        if torch.utils.data.get_worker_info() is not None:
+            numel = sum([x.numel() for x in batch])
+            storage = elem.storage()._new_shared(numel)
+            out = elem.new(storage)
+        return torch.stack(batch, 0, out=out)
+    elif isinstance(elem, float):
+        return torch.tensor(batch, dtype=torch.float)
+    elif isinstance(elem, int):
+        return torch.tensor(batch)
+    elif isinstance(elem, (str, bytes)):
+        return batch
+    elif isinstance(elem, data.Graph):
+        return elem.pack(batch)
+    elif isinstance(elem, Mapping):
+        return {key: graph_collate_with_gvp([d[key] for d in batch]) for key in elem}
+    elif isinstance(elem, Sequence):
+        it = iter(batch)
+        elem_size = len(next(it))
+        if not all(len(elem) == elem_size for elem in it):
+            raise RuntimeError('Each element in list of batch should be of equal size')
+        return [graph_collate_with_gvp(samples) for samples in zip(*batch)]
+    elif isinstance(elem, torch_geometric.data.Data):
+        return torch_geometric.data.Batch.from_data_list(batch)
+    raise TypeError("Can't collate data with type `%s`" % type(elem))
 
 def create_single_pred_dataframe(pipeline, dataset, slice=False, max_slice_length=None, padding=None):
     if slice and not (max_slice_length and padding):
@@ -65,7 +106,7 @@ def create_single_pred_dataframe(pipeline, dataset, slice=False, max_slice_lengt
 
     df = pd.DataFrame()
     pipeline.task.eval()
-    for protein_index, batch in enumerate(data.DataLoader(dataset, batch_size=1, shuffle=False)):
+    for protein_index, batch in enumerate(data.DataLoader(dataset, batch_size=1, shuffle=False, collate_fn=graph_collate_with_gvp)):
         # unpack a non-cuda protein beforehand - need one for infer_sliced
         protein = batch['graph'].unpack()[0]
         batch = utils.cuda(batch, device=torch.device(
@@ -97,7 +138,8 @@ METRICS_USING = ("mcc", "micro_auprc", "sensitivity", "precision", "micro_auroc"
 
 class Pipeline:
     possible_models = ['bert', 'gearnet', 'lm-gearnet',
-                       'cnn', 'esm-t6', 'esm-t12', 'esm-t30', 'esm-t33', 'esm-t36', 'esm-t48']
+                       'cnn', 'esm-t6', 'esm-t12', 'esm-t30', 'esm-t33', 'esm-t36', 'esm-t48',
+                       'gvp']
     threshold = 0
 
     def __init__(self,
@@ -220,7 +262,9 @@ class Pipeline:
                 self.model = LMGearNetModel(**model_kwargs)
             elif model == 'cnn':
                 self.model = models.ProteinCNN(**model_kwargs)
-            elif model.startswith('esm'):
+            elif model == 'gvp':
+                self.model = GVPWrapModel(**model_kwargs)
+            elif isinstance(model, str) and model.startswith('esm'):
                 self.model = EsmWrapModel(model_type=model, **model_kwargs)
             # pre built model, eg LoraModel. I wonder wheter there is better way to check this
             elif isinstance(model, torch.nn.Module):
@@ -280,7 +324,8 @@ class Pipeline:
         dataloader = data.DataLoader(
             self.valid_set,
             batch_size=self.batch_size,
-            shuffle=False
+            shuffle=False,
+            collate_fn=graph_collate_with_gvp,
         )
 
         preds = []
@@ -347,7 +392,7 @@ class Pipeline:
             preds.append(pred)
 
             # self.task.target only receives a batch, so we have to wrap it with a dataloader
-            dataloader = data.DataLoader([item], batch_size=1, shuffle=False)    
+            dataloader = data.DataLoader([item], batch_size=1, shuffle=False, collate_fn=graph_collate_with_gvp)
             target = self.task.target(next(iter(dataloader)))
             targets.append(target)
             
@@ -363,12 +408,17 @@ class Pipeline:
         target = protein.target
         intermediate_preds = []
         sliced_proteins, _ = protein_to_slices(protein, target, max_slice_length=max_slice_length, padding=padding)
-        dataloader = data.DataLoader(sliced_proteins, batch_size=1, shuffle=False)
+        dataloader = data.DataLoader(sliced_proteins, batch_size=1, shuffle=False, collate_fn=graph_collate_with_gvp)
+        gvp_json_records = [parse_protein_to_json_record(protein) for protein in sliced_proteins]
+        gvp_dataset = ProteinGraphDataset(gvp_json_records, device=f'cuda:{self.gpus[0]}')
         with torch.no_grad():
             self.task.eval()
-            for batch in dataloader:
+            for batch, gvp_data in zip(dataloader, gvp_dataset):
                 batch = utils.cuda(batch, device=torch.device(f'cuda:{self.gpus[0]}'))
-                pred = self.task.predict({"graph": batch})
+                pred = self.task.predict({
+                    'graph': batch,
+                    'gvp_data': gvp_data,
+                })
                 intermediate_preds.append(pred)
         final_preds = torch.zeros(target.shape)
         for i, (start, end) in enumerate(get_slices(target.shape[0], max_slice_length=max_slice_length, padding=padding)):
