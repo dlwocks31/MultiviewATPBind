@@ -120,6 +120,11 @@ def generate_esm_t33_gearnet_params(hidden_dim_size, prefix_override=None):
                 'model_ref': f'{prefix}',
                 'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=ratio/100, mask_positive=True),
             },
+            f'{prefix}-20-cycle-adaboost-{ratio_str}': {
+                'ensemble_count': 10,
+                'model_ref': f'{prefix}-20-cycle',
+                'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=ratio/100, mask_positive=True),
+            },
             f'{prefix}-pretrained-adaboost-{ratio_str}': {
                 'ensemble_count': 10,
                 'model_ref': f'{prefix}-pretrained',
@@ -128,6 +133,11 @@ def generate_esm_t33_gearnet_params(hidden_dim_size, prefix_override=None):
             f'{prefix}-resiboost-{ratio_str}': {
                 'ensemble_count': 10,
                 'model_ref': f'{prefix}',
+                'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=ratio/100, mask_positive=False),
+            },
+            f'{prefix}-20-cycle-resiboost-{ratio_str}': {
+                'ensemble_count': 10,
+                'model_ref': f'{prefix}-20-cycle',
                 'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=ratio/100, mask_positive=False),
             },
             f'{prefix}-pretrained-resiboost-{ratio_str}': {
@@ -165,6 +175,15 @@ def generate_esm_t33_gearnet_params(hidden_dim_size, prefix_override=None):
                 'gearnet_hidden_dim_size': hidden_dim_size,
                 'lm_freeze_layer_count': 30,
             },
+        },
+        f'{prefix}-20-cycle': {
+            'model': 'lm-gearnet',
+            'model_kwargs': {
+                'lm_type': 'esm-t33',
+                'gearnet_hidden_dim_size': hidden_dim_size,
+                'lm_freeze_layer_count': 30,
+            },
+            'cycle_size': 20,
         },
         f'{prefix}-pretrained': {
             'model': 'lm-gearnet',
@@ -304,22 +323,6 @@ ALL_PARAMS = {
             'hidden_dims': [512] * 4,
         },
         'cycle_size': 20,
-    },
-    'gearnet-50-cycle': {
-        'model': 'gearnet',
-        'model_kwargs': {
-            'input_dim': 21,
-            'hidden_dims': [512] * 4,
-        },
-        'cycle_size': 50,
-    },
-    'gearnet-100-cycle': {
-        'model': 'gearnet',
-        'model_kwargs': {
-            'input_dim': 21,
-            'hidden_dims': [512] * 4,
-        },
-        'cycle_size': 100,
     },
     'bert-gearnet': {
         'model': 'lm-gearnet',
@@ -653,4 +656,8 @@ if __name__ == '__main__':
         send_to_discord_webhook(f'You requested to stop the job started at {start_time}.')
         logger.info('Received KeyboardInterrupt. Exit.')
         exit(0)
+    except Exception as e:
+        send_to_discord_webhook(f'Error: {e}')
+        logger.exception(e)
+        exit(1)
 
