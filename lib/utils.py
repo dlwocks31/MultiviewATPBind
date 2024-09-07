@@ -1,9 +1,13 @@
+import json
+import requests
 from sklearn.metrics import confusion_matrix
 from torchdrug import metrics
 import torch
 from statistics import mean, stdev
 import pandas as pd
 import numpy as np
+import logging
+import os
 
 def dict_tensor_to_num(d):
     return {k: v.item() if isinstance(v, torch.Tensor) else v
@@ -105,3 +109,37 @@ def aggregate_pred_dataframe(files=None, dfs=None, alpha=None, apply_sig=False):
             final_df[f'pred_{i}'] = final_df[f'pred_{i}'].apply(sigmoid)
     final_df['pred'] = final_df[list(filter(lambda a: a.startswith('pred_'), final_df.columns.tolist()))].mean(axis=1)
     return final_df.reset_index()
+
+
+def send_to_discord_webhook(data):
+    """
+    Send data to a Discord webhook.
+    
+    :param data: The data to send (string or dictionary)
+    """
+    webhook_url = os.environ.get('DISCORD_WEBHOOK_URL')
+    if not webhook_url:
+        print("Attempted to send data to Discord webhook, but no URL found in environment variables")
+        return
+
+    headers = {
+        "Content-Type": "application/json"
+    }
+
+    # Prepare the payload
+    if isinstance(data, dict):
+        formatted_data = json.dumps(data, indent=2)
+        content = f"```json\n{formatted_data}\n```"
+    else:
+        content = str(data)
+
+    payload = {
+        "content": content
+    }
+
+    try:
+        response = requests.post(webhook_url, json=payload, headers=headers)
+        response.raise_for_status()
+        print("Successfully sent data to Discord webhook")
+    except requests.exceptions.RequestException as e:
+        print(f"Failed to send data to Discord webhook: {e}")

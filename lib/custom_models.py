@@ -244,3 +244,56 @@ class GVPWrapModel(torch.nn.Module, core.Configurable):
         return {
             "node_feature": logits
         }
+
+
+class GVPEncoderWrapModel(torch.nn.Module, core.Configurable):
+    '''
+    Encoder-only architecture adapted from GVP model
+    '''
+
+    def __init__(self, node_in_dim, node_h_dim, edge_in_dim, edge_h_dim, gpu, num_layers=3, drop_rate=0.1, output_dim=1):
+        super().__init__()
+        logger.info(
+            f'GVPWrapModel: node_in_dim: {node_in_dim}, node_h_dim: {node_h_dim}, edge_in_dim: {edge_in_dim}, edge_h_dim: {edge_h_dim}, num_layers: {num_layers}, drop_rate: {drop_rate}, output_dim: {output_dim}')
+        self.gpu = gpu
+        self.output_dim = output_dim
+
+        self.W_v = nn.Sequential(
+            GVP(node_in_dim, node_h_dim, activations=(None, None)),
+            LayerNorm(node_h_dim)
+        )
+        self.W_e = nn.Sequential(
+            GVP(edge_in_dim, edge_h_dim, activations=(None, None)),
+            LayerNorm(edge_h_dim)
+        )
+
+        self.encoder_layers = nn.ModuleList(
+            GVPConvLayer(node_h_dim, edge_h_dim, drop_rate=drop_rate)
+            for _ in range(num_layers))
+
+        self.W_out = GVP(node_h_dim, (self.output_dim, 0),
+                         activations=(None, None))
+
+    def forward(self, graph, gvp_data, all_loss=None, metric=None):
+        '''
+        Forward pass for encoder-only architecture
+        
+        :param h_V: tuple (s, V) of node embeddings
+        :param edge_index: `torch.Tensor` of shape [2, num_edges]
+        :param h_E: tuple (s, V) of edge embeddings
+        '''
+        h_V = (gvp_data['node_s'], gvp_data['node_v'])
+        h_E = (gvp_data['edge_s'], gvp_data['edge_v'])
+        edge_index = gvp_data['edge_index']
+
+        h_V = self.W_v(h_V)
+        h_E = self.W_e(h_E)
+
+        for layer in self.encoder_layers:
+            h_V = layer(h_V, edge_index, h_E)
+
+        logits = self.W_out(h_V)
+
+        return {
+            "node_feature": logits
+        }

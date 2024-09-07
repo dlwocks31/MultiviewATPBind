@@ -257,7 +257,6 @@ class ATPBind3D(data.ProteinDataset):
             graph.weight = self._get_weight(index).view(-1, 1)
         graph.view = 'residue'
         item = {"graph": graph, "gvp_data": gvp_data}
-        # print(f'XXX in datasets.py, target.shape: {target.shape}, targets["binding"].shape: {self.targets["binding"].shape}')
         if self.transform:
             item = self.transform(item)
         # print(f'get_item {index}, mask {item["graph"].mask.sum()} / {len(item["graph"].mask)}')

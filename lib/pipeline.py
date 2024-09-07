@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from functools import cache
 from statistics import mean
 
+import torch_geometric
 import numpy as np
 import pandas as pd
 import torch
@@ -11,13 +12,12 @@ from torch.nn import functional as F
 from torch.utils import data as torch_data
 from torchdrug import (core, data, layers, models, transforms,
                        utils)
-import torch_geometric
 from gvp.data import ProteinGraphDataset
 from torchdrug.layers import functional, geometry
 from collections.abc import Mapping, Sequence
 
 from .bert import BertWrapModel, EsmWrapModel
-from .custom_models import GearNetWrapModel, LMGearNetModel, GVPWrapModel
+from .custom_models import GearNetWrapModel, LMGearNetModel, GVPWrapModel, GVPEncoderWrapModel
 from .datasets import (CUSTOM_DATASET_TYPES, ATPBind3D, CustomBindDataset, ATPBindTestEsm,
                        get_slices, protein_to_slices)
 from .lr_scheduler import CyclicLR, ExponentialLR
@@ -100,6 +100,9 @@ def graph_collate_with_gvp(batch):
         return torch_geometric.data.Batch.from_data_list(batch)
     raise TypeError("Can't collate data with type `%s`" % type(elem))
 
+# monkey patch graph_collate
+data.dataloader.graph_collate = graph_collate_with_gvp
+
 def create_single_pred_dataframe(pipeline, dataset, slice=False, max_slice_length=None, padding=None):
     if slice and not (max_slice_length and padding):
         raise ValueError('max_slice_length and padding must be provided when slice is True')
@@ -139,7 +142,7 @@ METRICS_USING = ("mcc", "micro_auprc", "sensitivity", "precision", "micro_auroc"
 class Pipeline:
     possible_models = ['bert', 'gearnet', 'lm-gearnet',
                        'cnn', 'esm-t6', 'esm-t12', 'esm-t30', 'esm-t33', 'esm-t36', 'esm-t48',
-                       'gvp']
+                       'gvp', 'gvp-encoder']
     threshold = 0
 
     def __init__(self,
@@ -264,6 +267,8 @@ class Pipeline:
                 self.model = models.ProteinCNN(**model_kwargs)
             elif model == 'gvp':
                 self.model = GVPWrapModel(**model_kwargs)
+            elif model == 'gvp-encoder':
+                self.model = GVPEncoderWrapModel(**model_kwargs)
             elif isinstance(model, str) and model.startswith('esm'):
                 self.model = EsmWrapModel(model_type=model, **model_kwargs)
             # pre built model, eg LoraModel. I wonder wheter there is better way to check this
@@ -273,10 +278,15 @@ class Pipeline:
     def train(self, num_epoch):
         return self.solver.train(num_epoch=num_epoch)
 
-    def train_until_fit(self, max_epoch=None, patience=1, use_dynamic_threshold=True):
+    def train_until_fit(self, max_epoch=None, patience=-1, use_dynamic_threshold=True, eval_testset_intermediate=True):
+        '''
+        eval_testset_intermediate: if True, evaluate test set after each epoch. if False, evaluate test set only at the end.
+        '''
         from itertools import count
         train_record = []
         last_time = datetime.now()
+        if max_epoch is None and patience == -1:
+            raise ValueError('Either max_epoch or patience must be specified')
         for epoch in count(start=1):
             if (max_epoch is not None) and (epoch > max_epoch):
                 break
@@ -294,7 +304,10 @@ class Pipeline:
                     valid_mcc = self.evaluate(split='valid', threshold=0)['mcc']
                     threshold = 0
                 
-                cur_result = self.evaluate_test_sliced(threshold=threshold)
+                if eval_testset_intermediate:
+                    cur_result = self.evaluate_test_sliced(threshold=threshold)
+                else:
+                    cur_result = {}
                 cur_result['valid_mcc'] = valid_mcc
                 cur_result['train_bce'] = self.get_last_bce()
                 cur_result['valid_bce'] = valid_bce
@@ -306,10 +319,17 @@ class Pipeline:
                 print(f'{format_timedelta(cur_time - last_time)} {cur_result}')
                 last_time = cur_time
                 
-                # early stop                
+                # early stop
+                if patience == -1:
+                    continue
+                
                 best_index = np.argmax([record['valid_mcc'] for record in train_record])
                 if best_index < len(train_record) - patience:
                     break
+        if not eval_testset_intermediate:
+            threshold = self.valid_dataset_stats()['best_threshold']
+            train_record[-1] = {**self.evaluate_test_sliced(threshold=threshold), **train_record[-1]}
+            print(f'final test set result: {train_record[-1]}')
         return train_record
 
     def get_last_bce(self):

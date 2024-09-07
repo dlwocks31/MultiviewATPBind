@@ -3,10 +3,12 @@ import torch
 import pandas as pd
 import os
 import numpy as np
-
-from lib.utils import generate_mean_ensemble_metrics_auto, read_initial_csv, aggregate_pred_dataframe, round_dict
+import logging
+import datetime
+from lib.utils import generate_mean_ensemble_metrics_auto, read_initial_csv, aggregate_pred_dataframe, round_dict, send_to_discord_webhook
 from lib.pipeline import create_single_pred_dataframe
 
+logger = logging.getLogger(__name__)
 GPU = 0
 
 def sigmoid(x):
@@ -28,7 +30,7 @@ def make_resiboost_preprocess_fn(negative_use_ratio, mask_positive=False):
         def resiboost_preprocess(pipeline):
             # build mask
             if not df_trains:
-                print('No previous result, mask nothing')
+                logger.warn('No previous result, mask nothing')
                 return
             masks = pipeline.dataset.masks
             
@@ -48,8 +50,8 @@ def make_resiboost_preprocess_fn(negative_use_ratio, mask_positive=False):
             # Drop the 'sort_key' column from the sorted DataFrame
             confident_target_df = confident_target_df.drop(columns=['sort_key'])
             
-            print(f'Masking out {len(confident_target_df)} samples out of {len(mask_target_df)}. (Originally {len(final_df)}) Most confident samples:')
-            print(confident_target_df.head(10))
+            logger.info(f'Masking out {len(confident_target_df)} samples out of {len(mask_target_df)}. (Originally {len(final_df)}) Most confident samples:')
+            logger.info(confident_target_df.head(10))
             for _, row in confident_target_df.iterrows():
                 protein_index_in_dataset = int(row['protein_index'])
                 # assume valid fold is consecutive: so that if protein index is larger than first protein index in valid fold, 
@@ -87,9 +89,9 @@ def make_rus_preprocess_fn(use_ratio, mask_positive=True):
 def load_pretrained_fn(path):
     def load_pretrained(pipeline):
         load_path = get_data_path(path)
-        print(f'Loading weight from {load_path}')
+        logger.info(f'Loading weight from {load_path}')
         pipeline.task.load_state_dict(torch.load(load_path), strict=False)
-        print('Done loading weight')
+        logger.info('Done loading weight')
     return load_pretrained
 
 DEBUG = False
@@ -108,7 +110,7 @@ def generate_esm_t33_gearnet_params(hidden_dim_size, prefix_override=None):
                 prefix += f'-{i}'
         return prefix
     prefix = generate_prefix(hidden_dim_size) if prefix_override is None else prefix_override
-    print(f'Generating params for {prefix}')
+    logger.info(f'Generating params for {prefix}')
     
     def generate_ratio_method(prefix, ratio):
         ratio_str = f'r{ratio:02d}'
@@ -189,6 +191,69 @@ def generate_esm_t33_gearnet_params(hidden_dim_size, prefix_override=None):
     }
 
 ALL_PARAMS = {
+    'gvp': {
+        'model': 'gvp-encoder',
+        'model_kwargs': {
+            'node_in_dim': (6, 3),
+            'node_h_dim': (100, 16),
+            'edge_in_dim': (32, 1),
+            'edge_h_dim': (32, 1),
+            'num_layers': 3,
+            'drop_rate': 0.1,
+            'output_dim': 20,
+        },
+        'task_kwargs': {
+            'node_feature_type': 'gvp_data',
+        },
+    },
+    'gvp-100-cycle': {
+        'model': 'gvp-encoder',
+        'model_kwargs': {
+            'node_in_dim': (6, 3),
+            'node_h_dim': (100, 16),
+            'edge_in_dim': (32, 1),
+            'edge_h_dim': (32, 1),
+            'num_layers': 3,
+            'drop_rate': 0.1,
+            'output_dim': 20,
+        },
+        'task_kwargs': {
+            'node_feature_type': 'gvp_data',
+        },
+        'cycle_size': 100,
+    },
+    'gvp-20-cycle': {
+        'model': 'gvp-encoder',
+        'model_kwargs': {
+            'node_in_dim': (6, 3),
+            'node_h_dim': (100, 16),
+            'edge_in_dim': (32, 1),
+            'edge_h_dim': (32, 1),
+            'num_layers': 3,
+            'drop_rate': 0.1,
+            'output_dim': 20,
+        },
+        'task_kwargs': {
+            'node_feature_type': 'gvp_data',
+        },
+        'cycle_size': 20,
+    },
+    'gvp-50-cycle': {
+        'model': 'gvp-encoder',
+        'model_kwargs': {
+            'node_in_dim': (6, 3),
+            'node_h_dim': (100, 16),
+            'edge_in_dim': (32, 1),
+            'edge_h_dim': (32, 1),
+            'num_layers': 3,
+            'drop_rate': 0.1,
+            'output_dim': 20,
+        },
+        'task_kwargs': {
+            'node_feature_type': 'gvp_data',
+        },
+        'cycle_size': 50,
+    },
     'esm-t33': {
         'model': 'esm-t33',
         'model_kwargs': {
@@ -231,6 +296,30 @@ ALL_PARAMS = {
             'input_dim': 21,
             'hidden_dims': [512] * 4,
         },
+    },
+    'gearnet-20-cycle': {
+        'model': 'gearnet',
+        'model_kwargs': {
+            'input_dim': 21,
+            'hidden_dims': [512] * 4,
+        },
+        'cycle_size': 20,
+    },
+    'gearnet-50-cycle': {
+        'model': 'gearnet',
+        'model_kwargs': {
+            'input_dim': 21,
+            'hidden_dims': [512] * 4,
+        },
+        'cycle_size': 50,
+    },
+    'gearnet-100-cycle': {
+        'model': 'gearnet',
+        'model_kwargs': {
+            'input_dim': 21,
+            'hidden_dims': [512] * 4,
+        },
+        'cycle_size': 100,
     },
     'bert-gearnet': {
         'model': 'lm-gearnet',
@@ -291,12 +380,12 @@ def clear_cache():
 
 def save_pipeline_weight(pipeline, path):
     path = get_data_path(path)
-    print(f'Saving weight to {path}')
+    logger.info(f'Saving weight to {path}')
     original_state_dict = pipeline.task.state_dict()
     filtered_state_dict = {k: v for k, v in original_state_dict.items() if not (
         k.startswith('model.lm.encoder.layer.') and int(k.split('.')[4]) < 30)}
     torch.save(filtered_state_dict, path)
-    print('Done saving weight')
+    logger.info('Done saving weight')
     
 def single_run(
     dataset,
@@ -312,6 +401,8 @@ def single_run(
     batch_size=None,
     gradient_interval=1,
     original_model_key=None,
+    cycle_size=CYCLE_SIZE,
+    task_kwargs={},
 ):
     clear_cache()
     gpu = gpu or GPU
@@ -330,27 +421,28 @@ def single_run(
         scheduler_kwargs={
             'base_lr': 3e-4,
             'max_lr': 3e-3,
-            'step_size_up': CYCLE_SIZE / 2,
-            'step_size_down': CYCLE_SIZE / 2,
+            'step_size_up': cycle_size // 2,
+            'step_size_down': cycle_size // 2,
             'cycle_momentum': False
         },
         dataset_kwargs={
             'to_slice': True,
             'max_slice_length': max_slice_length,
             'padding': padding,
-        }
+        },
+        task_kwargs=task_kwargs,
     )
     
     if pipeline_before_train_fn:
         pipeline_before_train_fn(pipeline)
 
     train_record = pipeline.train_until_fit(
-        patience=CYCLE_SIZE,
-        max_epoch=CYCLE_SIZE,
+        max_epoch=cycle_size, 
+        eval_testset_intermediate=False, # Speed up training
     )
     
     last_record = train_record[-1]
-    print(f'single_run done. Last MCC: {last_record["mcc"]}')
+    logger.info(f'single_run done. Last MCC: {last_record["mcc"]}')
 
     if return_df:
         df_train = create_single_pred_dataframe(pipeline, pipeline.train_set)
@@ -427,7 +519,7 @@ def ensemble_run(
         me_metric = generate_mean_ensemble_metrics_auto(
             df_valid=df_valid, df_test=df_test, start=start, end=end, step=step
         )
-        print(f'me_metric: {me_metric}')
+        logger.info(f'me_metric: {me_metric}')
 
     
     if WRITE_DF:
@@ -464,15 +556,15 @@ def write_result(model_key,
     for key in remove_keys:
         if key in record_dict:
             del record_dict[key]
-    record_df = pd.concat([record_df, pd.DataFrame([
-        {
-            'model_key': model_key,
-            'valid_fold': valid_fold,
-            **additional_record,
-            **record_dict,
-            'finished_at': pd.Timestamp.now().strftime('%Y-%m-%d %X'),
-        }
-    ])])
+            
+    added_record = {
+        'model_key': model_key,
+        'valid_fold': valid_fold,
+        **additional_record,
+        **record_dict,
+        'finished_at': pd.Timestamp.now().strftime('%Y-%m-%d %X'),
+    }
+    record_df = pd.concat([record_df, pd.DataFrame([added_record])])
     record_df.to_csv(result_file, index=False)
 
 
@@ -527,19 +619,22 @@ if __name__ == '__main__':
     
     if args.model_key_regex:
         import re
-        print(f'Using model key regex {args.model_key_regex}')
+        logger.info(f'Using model key regex {args.model_key_regex}')
         model_keys = list(ALL_PARAMS.keys())
         model_keys = [key for key in model_keys if re.match(args.model_key_regex, key)]
     else:
         model_keys = args.model_keys
         
     
-    print(f'Using default GPU {args.gpu}')
-    print(f'Running model keys {model_keys}')
-    print(f'Running valid folds {args.valid_folds}')
+    logger.info(f'Using default GPU {args.gpu}')
+    logger.info(f'Running model keys {model_keys}')
+    logger.info(f'Running valid folds {args.valid_folds}')
     
     # set this on need
     extra_kwargs = []
+    
+    start_time = datetime.datetime.now()
+    send_to_discord_webhook(f'Started job at {start_time}. model_keys: {model_keys}, dataset: {args.dataset}, valid_folds: {args.valid_folds}')
     
     try:
         for dataset in args.dataset:
@@ -548,11 +643,14 @@ if __name__ == '__main__':
                     if not extra_kwargs:
                         extra_kwargs = [{}]
                     for kwargs in extra_kwargs:
-                        print(f'Running {model_key}, dataset {dataset}, fold {valid_fold}, extra_kwargs {kwargs}')
+                        logger.info(f'Running {model_key}, dataset {dataset}, fold {valid_fold}, extra_kwargs {kwargs}')
                         main(
                             dataset=dataset, model_key=model_key, valid_fold=valid_fold, extra_kwargs=kwargs,
                             save_weight=args.save_weight,
                             )
+        send_to_discord_webhook(f'Finished job started at {start_time}. model_keys: {model_keys}, dataset: {args.dataset}, valid_folds: {args.valid_folds}')
     except KeyboardInterrupt:
-        print('Received KeyboardInterrupt. Exit.')
+        send_to_discord_webhook(f'You requested to stop the job started at {start_time}.')
+        logger.info('Received KeyboardInterrupt. Exit.')
         exit(0)
+
