@@ -657,7 +657,7 @@ if __name__ == '__main__':
         logger.info('Received KeyboardInterrupt. Exit.')
         exit(0)
     except Exception as e:
-        send_to_discord_webhook(f'Error: {e}')
+        send_to_discord_webhook(f'Job started at {start_time} Error: {e}')
         logger.exception(e)
         exit(1)
 

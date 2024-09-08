@@ -140,6 +140,5 @@ def send_to_discord_webhook(data):
     try:
         response = requests.post(webhook_url, json=payload, headers=headers)
         response.raise_for_status()
-        print("Successfully sent data to Discord webhook")
     except requests.exceptions.RequestException as e:
         print(f"Failed to send data to Discord webhook: {e}")

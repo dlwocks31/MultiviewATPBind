@@ -435,6 +435,10 @@ class Pipeline:
             self.task.eval()
             for batch, gvp_data in zip(dataloader, gvp_dataset):
                 batch = utils.cuda(batch, device=torch.device(f'cuda:{self.gpus[0]}'))
+                # this fixes the error: 'PackedProtein' object has no attribute 'atom_feature'. Not sure why..
+                # In normal cases, view is set in datasets.py#get_item
+                batch.view = 'residue'
+                
                 pred = self.task.predict({
                     'graph': batch,
                     'gvp_data': gvp_data,
