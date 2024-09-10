@@ -178,6 +178,9 @@ class GearNetWrapModel(torch.nn.Module, core.Configurable):
 class GVPWrapModel(torch.nn.Module, core.Configurable):
     '''
     Adapted from CPDModel of gvp-pytorch repository
+    
+    node_in_dim should be (6, 3) if using original feature
+    edge_in_dim should be (32, 1) if using original feature
     '''
     def __init__(self, node_in_dim, node_h_dim, edge_in_dim, edge_h_dim, gpu, num_layers=3, drop_rate=0.1, output_dim=1):
         super().__init__()
@@ -297,3 +300,102 @@ class GVPEncoderWrapModel(torch.nn.Module, core.Configurable):
         return {
             "node_feature": logits
         }
+
+class LMGVPModel(torch.nn.Module, core.Configurable):
+    def __init__(self, 
+                 gpu,
+                 lm_type='bert',
+                 node_in_dim=(6, 3), # should be (6, 3) if using orignal feature
+                 edge_in_dim=(32, 1), # should be (32, 1) if using original feature
+                 node_h_dim=(256, 16),
+                 edge_h_dim=(32, 1),
+                 num_layers=3,
+                 drop_rate=0.1,
+                 lm_freeze_layer_count=None,
+                 residual=True):
+        super().__init__()
+        Model, Tokenizer, pretrained_model_name, lm_layer_count = lm_type_map[lm_type]
+        self.lm_layer_count = lm_layer_count
+        self.tokenizer = Tokenizer.from_pretrained(pretrained_model_name, do_lower_case=False)
+        self.lm = Model.from_pretrained(pretrained_model_name).to(f'cuda:{gpu}')
+        
+        # GVP layers
+        # print(f'on build time: lm.config.hidden_size = {self.lm.config.hidden_size}, node_h_dim[0] = {node_h_dim[0]}')
+        node_in_dim = (self.lm.config.hidden_size + node_in_dim[0], node_in_dim[1])
+        self.W_v = nn.Sequential(
+            GVP(node_in_dim, node_h_dim, activations=(None, None)),
+            LayerNorm(node_h_dim),
+        )
+        self.W_e = nn.Sequential(
+            GVP(edge_in_dim, edge_h_dim, activations=(None, None)),
+            LayerNorm(edge_h_dim),
+        )
+        
+        self.layers = nn.ModuleList(
+            GVPConvLayer(node_h_dim, edge_h_dim, drop_rate=drop_rate)
+            for _ in range(num_layers)
+        )
+        
+        self.residual = residual
+        if self.residual:
+            node_h_dim = (node_h_dim[0] * num_layers, node_h_dim[1] * num_layers)
+        
+        ns, _ = node_h_dim
+        self.W_out = GVP(node_h_dim, (ns, 0), activations=(None, None))
+        
+        self.output_dim = ns
+        self.gpu = gpu
+        
+        if lm_freeze_layer_count is not None:
+            self.freeze_lm(freeze_layer_count=lm_freeze_layer_count)
+
+    def forward(self, graph, gvp_data, all_loss=None, metric=None):
+        input = [separate_alphabets(seq) for seq in graph.to_sequence()]
+        input_len = [len(seq.replace(' ', '')) for seq in input]
+
+        encoded_input = self.tokenizer(input, return_tensors='pt', padding=True).to(f'cuda:{self.gpu}')
+        embedding_rpr = self.lm(**encoded_input)
+        
+        lm_residue_feature = []
+        for i, emb in enumerate(embedding_rpr.last_hidden_state):
+            lm_residue_feature.append(emb[1:1+input_len[i]])
+        
+        lm_output = torch.cat(lm_residue_feature)
+
+        # print(f'on forward time, lm_output = {lm_output.shape}, gvp_data[node_s] = {gvp_data["node_s"].shape}')
+        h_V = (torch.cat([gvp_data['node_s'], lm_output], dim=-1), gvp_data['node_v'])
+        h_E = (gvp_data['edge_s'], gvp_data['edge_v'])
+        edge_index = gvp_data['edge_index']
+
+        h_V = self.W_v(h_V)
+        h_E = self.W_e(h_E)
+
+        if not self.residual:
+            for layer in self.layers:
+                h_V = layer(h_V, edge_index, h_E)
+            out = self.W_out(h_V)
+        else:
+            h_V_out = []
+            h_V_in = h_V
+            for layer in self.layers:
+                h_V_out.append(layer(h_V_in, edge_index, h_E))
+                h_V_in = h_V_out[-1]
+            h_V_out = (
+                torch.cat([h_V[0] for h_V in h_V_out], dim=-1),
+                torch.cat([h_V[1] for h_V in h_V_out], dim=-2),
+            )
+            out = self.W_out(h_V_out)
+
+        return {
+            "node_feature": out
+        }
+        
+    def freeze_lm(self, freeze_layer_count=None):
+        # Freeze embeddings
+        for param in self.lm.embeddings.parameters():
+            param.requires_grad = False
+        if freeze_layer_count != -1:
+            # Freeze specified number of encoder layers
+            for layer in self.lm.encoder.layer[:freeze_layer_count]:
+                for param in layer.parameters():
+                    param.requires_grad = False

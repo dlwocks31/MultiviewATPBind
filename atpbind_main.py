@@ -333,6 +333,38 @@ ALL_PARAMS = {
             'lm_freeze_layer_count': 29,
         },
     },
+    'esm-t33-gvp-c10': {
+        'model': 'esm-t33-gvp',
+        'model_kwargs': {
+            'lm_freeze_layer_count': 30,
+        },
+        'cycle_size': 20,
+        'task_kwargs': {'node_feature_type': 'gvp_data'},
+    },
+    'esm-t33-gvp-c20': {
+        'model': 'esm-t33-gvp',
+        'model_kwargs': {
+            'lm_freeze_layer_count': 30,
+        },
+        'cycle_size': 20,
+        'task_kwargs': {'node_feature_type': 'gvp_data'},
+    },
+    'esm-t33-gvp-c50': {
+        'model': 'esm-t33-gvp',
+        'model_kwargs': {
+            'lm_freeze_layer_count': 30,
+        },
+        'cycle_size': 50,
+        'task_kwargs': {'node_feature_type': 'gvp_data'},
+    },
+    'esm-t33-gvp-c100': {
+        'model': 'esm-t33-gvp',
+        'model_kwargs': {
+            'lm_freeze_layer_count': 30,
+        },
+        'cycle_size': 100,
+        'task_kwargs': {'node_feature_type': 'gvp_data'},
+    },
     'esm-t36-gearnet': {
         'model': 'lm-gearnet',
         'model_kwargs': {

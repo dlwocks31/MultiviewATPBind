@@ -8,6 +8,7 @@ import torch_geometric
 import numpy as np
 import pandas as pd
 import torch
+import logging
 from torch.nn import functional as F
 from torch.utils import data as torch_data
 from torchdrug import (core, data, layers, models, transforms,
@@ -17,13 +18,15 @@ from torchdrug.layers import functional, geometry
 from collections.abc import Mapping, Sequence
 
 from .bert import BertWrapModel, EsmWrapModel
-from .custom_models import GearNetWrapModel, LMGearNetModel, GVPWrapModel, GVPEncoderWrapModel
+from .custom_models import GearNetWrapModel, LMGVPModel, LMGearNetModel, GVPWrapModel, GVPEncoderWrapModel
 from .datasets import (CUSTOM_DATASET_TYPES, ATPBind3D, CustomBindDataset, ATPBindTestEsm,
                        get_slices, protein_to_slices)
 from .lr_scheduler import CyclicLR, ExponentialLR
 from .tasks import NodePropertyPrediction
 from .utils import dict_tensor_to_num, round_dict
 from .gvp_util import parse_protein_to_json_record
+
+
 
 
 class DisableLogger():
@@ -142,7 +145,9 @@ METRICS_USING = ("mcc", "micro_auprc", "sensitivity", "precision", "micro_auroc"
 class Pipeline:
     possible_models = ['bert', 'gearnet', 'lm-gearnet',
                        'cnn', 'esm-t6', 'esm-t12', 'esm-t30', 'esm-t33', 'esm-t36', 'esm-t48',
-                       'gvp', 'gvp-encoder']
+                       'gvp', 'gvp-encoder',
+                       'esm-t33-gvp',
+                       ]
     threshold = 0
 
     def __init__(self,
@@ -269,6 +274,8 @@ class Pipeline:
                 self.model = GVPWrapModel(**model_kwargs)
             elif model == 'gvp-encoder':
                 self.model = GVPEncoderWrapModel(**model_kwargs)
+            elif model == 'esm-t33-gvp':
+                self.model = LMGVPModel(lm_type='esm-t33', **model_kwargs)
             elif isinstance(model, str) and model.startswith('esm'):
                 self.model = EsmWrapModel(model_type=model, **model_kwargs)
             # pre built model, eg LoraModel. I wonder wheter there is better way to check this
