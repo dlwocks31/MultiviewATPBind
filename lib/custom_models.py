@@ -305,8 +305,8 @@ class LMGVPModel(torch.nn.Module, core.Configurable):
     def __init__(self, 
                  gpu,
                  lm_type='bert',
-                 node_in_dim=(6, 3), # should be (6, 3) if using orignal feature
-                 edge_in_dim=(32, 1), # should be (32, 1) if using original feature
+                 node_in_dim=(6, 3),
+                 edge_in_dim=(32, 1),
                  node_h_dim=(256, 16),
                  edge_h_dim=(32, 1),
                  num_layers=3,
@@ -314,13 +314,15 @@ class LMGVPModel(torch.nn.Module, core.Configurable):
                  lm_freeze_layer_count=None,
                  residual=True):
         super().__init__()
+        self.gpu = gpu
+        device = torch.device(f'cuda:{gpu}' if torch.cuda.is_available() else 'cpu')
+        
         Model, Tokenizer, pretrained_model_name, lm_layer_count = lm_type_map[lm_type]
         self.lm_layer_count = lm_layer_count
         self.tokenizer = Tokenizer.from_pretrained(pretrained_model_name, do_lower_case=False)
-        self.lm = Model.from_pretrained(pretrained_model_name).to(f'cuda:{gpu}')
+        self.lm = Model.from_pretrained(pretrained_model_name).to(device)
         
         # GVP layers
-        # print(f'on build time: lm.config.hidden_size = {self.lm.config.hidden_size}, node_h_dim[0] = {node_h_dim[0]}')
         node_in_dim = (self.lm.config.hidden_size + node_in_dim[0], node_in_dim[1])
         self.W_v = nn.Sequential(
             GVP(node_in_dim, node_h_dim, activations=(None, None)),
@@ -344,16 +346,19 @@ class LMGVPModel(torch.nn.Module, core.Configurable):
         self.W_out = GVP(node_h_dim, (ns, 0), activations=(None, None))
         
         self.output_dim = ns
-        self.gpu = gpu
         
         if lm_freeze_layer_count is not None:
             self.freeze_lm(freeze_layer_count=lm_freeze_layer_count)
+        
+        # Move all modules to the specified device
+        self.to(device)
 
     def forward(self, graph, gvp_data, all_loss=None, metric=None):
+        device = next(self.parameters()).device  # Get the current device
         input = [separate_alphabets(seq) for seq in graph.to_sequence()]
         input_len = [len(seq.replace(' ', '')) for seq in input]
 
-        encoded_input = self.tokenizer(input, return_tensors='pt', padding=True).to(f'cuda:{self.gpu}')
+        encoded_input = self.tokenizer(input, return_tensors='pt', padding=True).to(device)
         embedding_rpr = self.lm(**encoded_input)
         
         lm_residue_feature = []
@@ -362,7 +367,6 @@ class LMGVPModel(torch.nn.Module, core.Configurable):
         
         lm_output = torch.cat(lm_residue_feature)
 
-        # print(f'on forward time, lm_output = {lm_output.shape}, gvp_data[node_s] = {gvp_data["node_s"].shape}')
         h_V = (torch.cat([gvp_data['node_s'], lm_output], dim=-1), gvp_data['node_v'])
         h_E = (gvp_data['edge_s'], gvp_data['edge_v'])
         edge_index = gvp_data['edge_index']

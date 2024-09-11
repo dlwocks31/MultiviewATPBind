@@ -7,6 +7,9 @@ import logging
 import datetime
 from lib.utils import generate_mean_ensemble_metrics_auto, read_initial_csv, aggregate_pred_dataframe, round_dict, send_to_discord_webhook
 from lib.pipeline import create_single_pred_dataframe
+from itertools import product
+import argparse
+import ast
 
 logger = logging.getLogger(__name__)
 GPU = 0
@@ -333,6 +336,21 @@ ALL_PARAMS = {
             'lm_freeze_layer_count': 29,
         },
     },
+    'esm-t33-gvp': {
+        'model': 'esm-t33-gvp',
+        'model_kwargs': {
+            'lm_freeze_layer_count': 30,
+        },
+        'task_kwargs': {'node_feature_type': 'gvp_data'},
+        'hyperparameters': {
+            'max_lr': [1e-3, 2e-3],
+            'model_kwargs.lm_freeze_layer_count': [30, 31],
+            'model_kwargs.node_h_dim': [(256, 16), (512, 16)],
+            'model_kwargs.num_layers': [3, 4],
+            'model_kwargs.residual': [True, False],
+            'cycle_size': [20, 10],
+        }
+    },
     'esm-t33-gvp-c10': {
         'model': 'esm-t33-gvp',
         'model_kwargs': {
@@ -437,6 +455,8 @@ def single_run(
     gradient_interval=1,
     original_model_key=None,
     cycle_size=CYCLE_SIZE,
+    base_lr=3e-4,
+    max_lr=3e-3,
     task_kwargs={},
 ):
     clear_cache()
@@ -454,8 +474,8 @@ def single_run(
         gradient_interval=gradient_interval,
         scheduler='cyclic',
         scheduler_kwargs={
-            'base_lr': 3e-4,
-            'max_lr': 3e-3,
+            'base_lr': base_lr,
+            'max_lr': max_lr,
             'step_size_up': cycle_size // 2,
             'step_size_down': cycle_size // 2,
             'cycle_momentum': False
@@ -568,6 +588,95 @@ def ensemble_run(
         "record": me_metric,
     }
 
+def get_hyperparameter_combinations(hyperparameters):
+    keys, values = zip(*hyperparameters.items())
+    return [dict(zip(keys, v)) for v in product(*values)]
+
+def parse_hyperparameters(hp_string):
+    if not hp_string:
+        return {}
+    
+    result = {}
+    for item in hp_string.split(','):
+        key, values = item.split('=')
+        model, param = key.split(':')
+        values = [v.strip() for v in values.split('|')]
+        
+        # Convert to appropriate types
+        try:
+            values = [ast.literal_eval(v) for v in values]
+        except:
+            pass  # Keep as strings if conversion fails
+        
+        if model not in result:
+            result[model] = {}
+        result[model][param] = values
+    
+    return result
+
+def update_nested_dict(d, key, value):
+    keys = key.split('.')
+    for k in keys[:-1]:
+        d = d.setdefault(k, {})
+    d[keys[-1]] = value
+
+def main(dataset, model_key, valid_fold, extra_kwargs={}, save_weight=False):
+    model = ALL_PARAMS[model_key]
+    if 'ensemble_count' not in model: # single run model
+        hyperparameters = model.get('hyperparameters', {})
+        if hyperparameters:
+            combinations = get_hyperparameter_combinations(hyperparameters)
+        else:
+            combinations = [{}]
+        
+        for i, hp_combination in enumerate(combinations):
+            logger.info(f'main: Running {model_key} with hyperparameters: {hp_combination}')
+            updated_model = model.copy()
+            updated_model.pop('hyperparameters', None)
+            
+            # Update nested dictionary
+            for key, value in hp_combination.items():
+                update_nested_dict(updated_model, key, value)
+            logger.info(f'main: Updated model: {updated_model}')
+            result_dict = single_run(
+                original_model_key=model_key,
+                dataset=dataset,
+                valid_fold_num=valid_fold,
+                save_weight=save_weight,
+                **updated_model,
+                **extra_kwargs,
+            )
+            
+            write_result(
+                model_key=model_key,
+                valid_fold=valid_fold,
+                result_dict=result_dict,
+                additional_record={**extra_kwargs, **hp_combination, 'hp_combination': i},
+                result_file=get_data_path(f'result/{dataset}_{model_key}_stats.csv')
+            )
+    else:
+        ensemble_count = model['ensemble_count']
+        model_ref = model['model_ref']
+        pipeline_before_train_fn = model.get('pipeline_before_train_fn', None)
+        result_dict = ensemble_run(
+            dataset=dataset,
+            original_model_key=model_key,
+            ensemble_count=ensemble_count,
+            valid_fold_num=valid_fold,
+            model_ref=model_ref,
+            pipeline_before_train_fn=pipeline_before_train_fn,
+            save_weight=save_weight,
+            **extra_kwargs,
+        )
+    
+        write_result(
+            model_key=model_key,
+            valid_fold=valid_fold,
+            result_dict=result_dict,
+            additional_record=extra_kwargs,
+            result_file=get_data_path(f'result/{dataset}_{model_key}_stats.csv')
+        )
+
 def write_result(model_key, 
                  valid_fold, 
                  result_dict,
@@ -599,48 +708,25 @@ def write_result(model_key,
         **record_dict,
         'finished_at': pd.Timestamp.now().strftime('%Y-%m-%d %X'),
     }
-    record_df = pd.concat([record_df, pd.DataFrame([added_record])])
+    new_record_df = pd.DataFrame([added_record])
+    record_df = pd.concat([record_df, new_record_df], ignore_index=True)
+    
+    # Reorder columns to match the order in added_record
+    column_order = list(added_record.keys())
+    record_df = record_df.reindex(columns=column_order)
+    
     record_df.to_csv(result_file, index=False)
 
+def log_hyperparameters(custom_hyperparameters):
+    log_message = "Custom hyperparameters:\n"
+    for model, params in custom_hyperparameters.items():
+        log_message += f"  {model}:\n"
+        for param, values in params.items():
+            log_message += f"    {param}: {values}\n"
+    logger.info(log_message)
+    send_to_discord_webhook(f"Custom hyperparameters set:\n```\n{log_message}\n```")
 
-def main(dataset, model_key, valid_fold, extra_kwargs={}, save_weight=False):
-    model = ALL_PARAMS[model_key]
-    if 'ensemble_count' not in model: # single run model
-        result_dict = single_run(
-            original_model_key=model_key,
-            dataset=dataset,
-            valid_fold_num=valid_fold,
-            save_weight=save_weight,
-            **model,
-            **extra_kwargs,
-        )
-    else:
-        ensemble_count = model['ensemble_count']
-        model_ref = model['model_ref']
-        pipeline_before_train_fn = model.get('pipeline_before_train_fn', None)
-        result_dict = ensemble_run(
-            dataset=dataset,
-            original_model_key=model_key,
-            ensemble_count=ensemble_count,
-            valid_fold_num=valid_fold,
-            model_ref=model_ref,
-            pipeline_before_train_fn=pipeline_before_train_fn,
-            save_weight=save_weight,
-            **extra_kwargs,
-        )
-    
-    result_file = get_data_path(f'result/{dataset}_stats.csv')
-    
-    write_result(
-        model_key=model_key,
-        valid_fold=valid_fold,
-        result_dict=result_dict,
-        additional_record=extra_kwargs,
-        result_file=result_file
-    )
-        
 if __name__ == '__main__':
-    import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', type=str, nargs='+', default=['atpbind3d'])
     parser.add_argument('--model_keys', type=str, nargs='+', default=['esm-t33'])
@@ -648,6 +734,9 @@ if __name__ == '__main__':
     parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--valid_folds', type=int, nargs='+', default=[0, 1, 2, 3, 4])
     parser.add_argument('--save_weight', action='store_true')
+    parser.add_argument('--hyperparameters', type=str, default=None, 
+                        help='Hyperparameters to override or add. '
+                             'Format: model:param=value1|value2,model:param2=value3|value4')
 
     args = parser.parse_args()
     GPU = args.gpu
@@ -671,9 +760,27 @@ if __name__ == '__main__':
     start_time = datetime.datetime.now()
     send_to_discord_webhook(f'Started job at {start_time}. model_keys: {model_keys}, dataset: {args.dataset}, valid_folds: {args.valid_folds}')
     
+    hyperparameter_info = ""
+    if args.hyperparameters:
+        custom_hyperparameters = parse_hyperparameters(args.hyperparameters)
+        log_hyperparameters(custom_hyperparameters)
+        for model_key, params in custom_hyperparameters.items():
+            if model_key in ALL_PARAMS:
+                if 'hyperparameters' not in ALL_PARAMS[model_key]:
+                    ALL_PARAMS[model_key]['hyperparameters'] = {}
+                ALL_PARAMS[model_key]['hyperparameters'].update(params)
+                logger.info(f"Updated hyperparameters for {model_key}")
+            else:
+                logger.warning(f"Model key '{model_key}' not found in ALL_PARAMS. Skipping.")
+        
+        hyperparameter_info = f", custom hyperparameters: {args.hyperparameters}"
+
     try:
         for dataset in args.dataset:
             for model_key in model_keys:
+                logger.info(f"Running model: {model_key}")
+                if model_key in ALL_PARAMS and 'hyperparameters' in ALL_PARAMS[model_key]:
+                    logger.info(f"Hyperparameters for {model_key}: {ALL_PARAMS[model_key]['hyperparameters']}")
                 for valid_fold in args.valid_folds:
                     if not extra_kwargs:
                         extra_kwargs = [{}]
@@ -683,13 +790,13 @@ if __name__ == '__main__':
                             dataset=dataset, model_key=model_key, valid_fold=valid_fold, extra_kwargs=kwargs,
                             save_weight=args.save_weight,
                             )
-        send_to_discord_webhook(f'Finished job started at {start_time}. model_keys: {model_keys}, dataset: {args.dataset}, valid_folds: {args.valid_folds}')
+        send_to_discord_webhook(f'Finished job started at {start_time}. model_keys: {model_keys}, dataset: {args.dataset}, valid_folds: {args.valid_folds}{hyperparameter_info}')
     except KeyboardInterrupt:
-        send_to_discord_webhook(f'You requested to stop the job started at {start_time}.')
+        send_to_discord_webhook(f'You requested to stop the job started at {start_time}{hyperparameter_info}.')
         logger.info('Received KeyboardInterrupt. Exit.')
         exit(0)
     except Exception as e:
-        send_to_discord_webhook(f'Job started at {start_time} Error: {e}')
+        send_to_discord_webhook(f'Job started at {start_time} Error: {e}{hyperparameter_info}')
         logger.exception(e)
         exit(1)
 

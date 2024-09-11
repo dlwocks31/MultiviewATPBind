@@ -216,7 +216,7 @@ class Pipeline:
         self.optimizer = torch.optim.Adam(self.model.parameters(), **optimizer_kwargs)
 
         if scheduler == 'cyclic':
-            print('use cyclic lr scheduler')
+            print(f'use cyclic lr scheduler. scheduler_kwargs: {scheduler_kwargs}')
             self.scheduler = CyclicLR(
                 self.optimizer, 
                 **scheduler_kwargs,
