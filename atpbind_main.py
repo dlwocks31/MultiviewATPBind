@@ -17,55 +17,51 @@ GPU = 0
 def sigmoid(x):
     return 1 / (1 + np.exp(-x))
 
-
-def make_resiboost_preprocess_fn(negative_use_ratio, mask_positive=False):
+def make_resiboost_preprocess_fn(df_trains, negative_use_ratio, mask_positive):
     '''
-    This function is intended to be called when the file is load.
-    This is to easily configure what negative_use_ratio to be used in a specific model.
-    '''
-    def make_resiboost_preprocess_traintime_fn(df_trains):
+    This function is intended to be called in training time in `ensemble_run`
+    when we actaully have access to `df_trains`, `negative_use_ratio`, and `mask_positive`.
+    The generated function will be passed to `single_run` as `pipeline_before_train_fn`.
+    '''    
+    def resiboost_preprocess(pipeline):
         '''
         This function is intended to be called in training time in `ensemble_run`
         when we actaully have access to `df_trains`.
-        The final `resiboost_preprocess` is passed to `single_run` as `pipeline_before_train_fn`,
-        with the information about previous training (`df_trains`) encapsulated.
         '''
-        def resiboost_preprocess(pipeline):
-            # build mask
-            if not df_trains:
-                logger.warn('No previous result, mask nothing')
-                return
-            masks = pipeline.dataset.masks
-            
-            final_df = aggregate_pred_dataframe(dfs=df_trains, apply_sig=True)
-            
-            mask_target_df = final_df if mask_positive else final_df[final_df['target'] == 0].copy()
-            
-            # larger negative_use_ratio means more negative samples are used in training
-            
-            # Create a new column for sorting
-            mask_target_df.loc[:, 'sort_key'] = mask_target_df.apply(
-                lambda row: 1-row['pred'] if row['target'] == 1 else row['pred'], axis=1)
+        # build mask
+        if not df_trains:
+            logger.info('No previous result, mask nothing')
+            return
+        masks = pipeline.dataset.masks
+        
+        final_df = aggregate_pred_dataframe(dfs=df_trains, apply_sig=True)
+        
+        mask_target_df = final_df if mask_positive else final_df[final_df['target'] == 0].copy()
+        
+        # larger negative_use_ratio means more negative samples are used in training
+        
+        # Create a new column for sorting
+        mask_target_df.loc[:, 'sort_key'] = mask_target_df.apply(
+            lambda row: 1-row['pred'] if row['target'] == 1 else row['pred'], axis=1)
 
-            # Sort the DataFrame using the new column
-            confident_target_df = mask_target_df.sort_values(by='sort_key')[:int(len(mask_target_df) * (1 - negative_use_ratio))]
+        # Sort the DataFrame using the new column
+        confident_target_df = mask_target_df.sort_values(by='sort_key')[:int(len(mask_target_df) * (1 - negative_use_ratio))]
 
-            # Drop the 'sort_key' column from the sorted DataFrame
-            confident_target_df = confident_target_df.drop(columns=['sort_key'])
-            
-            logger.info(f'Masking out {len(confident_target_df)} samples out of {len(mask_target_df)}. (Originally {len(final_df)}) Most confident samples:')
-            logger.info(confident_target_df.head(10))
-            for _, row in confident_target_df.iterrows():
-                protein_index_in_dataset = int(row['protein_index'])
-                # assume valid fold is consecutive: so that if protein index is larger than first protein index in valid fold, 
-                # we need to add the length of valid fold as an offset
-                if row['protein_index'] >= pipeline.dataset.valid_fold()[0]:
-                    protein_index_in_dataset += len(pipeline.dataset.valid_fold())
-                masks[protein_index_in_dataset][int(row['residue_index'])] = False
-            
-            pipeline.apply_mask_and_weights(masks=masks)
-        return resiboost_preprocess
-    return make_resiboost_preprocess_traintime_fn
+        # Drop the 'sort_key' column from the sorted DataFrame
+        confident_target_df = confident_target_df.drop(columns=['sort_key'])
+        
+        logger.info(f'Masking out {len(confident_target_df)} samples out of {len(mask_target_df)}. (Originally {len(final_df)}) Most confident samples:')
+        logger.info(confident_target_df.head(10))
+        for _, row in confident_target_df.iterrows():
+            protein_index_in_dataset = int(row['protein_index'])
+            # assume valid fold is consecutive: so that if protein index is larger than first protein index in valid fold, 
+            # we need to add the length of valid fold as an offset
+            if row['protein_index'] >= pipeline.dataset.valid_fold()[0]:
+                protein_index_in_dataset += len(pipeline.dataset.valid_fold())
+            masks[protein_index_in_dataset][int(row['residue_index'])] = False
+        
+        pipeline.apply_mask_and_weights(masks=masks)
+    return resiboost_preprocess
 
 def make_rus_preprocess_fn(use_ratio, mask_positive=True):
     def make_rus_preprocess_traintime_fn(df_trains):
@@ -103,115 +99,6 @@ WRITE_DF = False
 CYCLE_SIZE = 10
 
 
-def generate_esm_t33_gearnet_params(hidden_dim_size, prefix_override=None):
-    def generate_prefix(hidden_dim_size):
-        if all(i == hidden_dim_size[0] for i in hidden_dim_size):
-            prefix = f'esm-t33-gearnet-{hidden_dim_size[0]}-{len(hidden_dim_size)}'
-        else:
-            prefix = f'esm-t33-gearnet'
-            for i in hidden_dim_size:
-                prefix += f'-{i}'
-        return prefix
-    prefix = generate_prefix(hidden_dim_size) if prefix_override is None else prefix_override
-    logger.info(f'Generating params for {prefix}')
-    
-    def generate_ratio_method(prefix, ratio):
-        ratio_str = f'r{ratio:02d}'
-        return {
-            f'{prefix}-adaboost-{ratio_str}': {
-                'ensemble_count': 10,
-                'model_ref': f'{prefix}',
-                'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=ratio/100, mask_positive=True),
-            },
-            f'{prefix}-20-cycle-adaboost-{ratio_str}': {
-                'ensemble_count': 10,
-                'model_ref': f'{prefix}-20-cycle',
-                'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=ratio/100, mask_positive=True),
-            },
-            f'{prefix}-pretrained-adaboost-{ratio_str}': {
-                'ensemble_count': 10,
-                'model_ref': f'{prefix}-pretrained',
-                'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=ratio/100, mask_positive=True),
-            },
-            f'{prefix}-resiboost-{ratio_str}': {
-                'ensemble_count': 10,
-                'model_ref': f'{prefix}',
-                'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=ratio/100, mask_positive=False),
-            },
-            f'{prefix}-20-cycle-resiboost-{ratio_str}': {
-                'ensemble_count': 10,
-                'model_ref': f'{prefix}-20-cycle',
-                'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=ratio/100, mask_positive=False),
-            },
-            f'{prefix}-pretrained-resiboost-{ratio_str}': {
-                'ensemble_count': 10,
-                'model_ref': f'{prefix}-pretrained',
-                'pipeline_before_train_fn': make_resiboost_preprocess_fn(negative_use_ratio=ratio/100, mask_positive=False),
-            },
-            f'{prefix}-rus-{ratio_str}': {
-                'ensemble_count': 10,
-                'model_ref': f'{prefix}',
-                'pipeline_before_train_fn': make_rus_preprocess_fn(use_ratio=ratio/100, mask_positive=True),
-            },
-            f'{prefix}-pretrained-rus-{ratio_str}': {
-                'ensemble_count': 10,
-                'model_ref': f'{prefix}-pretrained',
-                'pipeline_before_train_fn': make_rus_preprocess_fn(use_ratio=ratio/100, mask_positive=True),
-            },
-            f'{prefix}-negrus-{ratio_str}': {
-                'ensemble_count': 10,
-                'model_ref': f'{prefix}',
-                'pipeline_before_train_fn': make_rus_preprocess_fn(use_ratio=ratio/100, mask_positive=False),
-            },
-            f'{prefix}-pretrained-negrus-{ratio_str}': {
-                'ensemble_count': 10,
-                'model_ref': f'{prefix}-pretrained',
-                'pipeline_before_train_fn': make_rus_preprocess_fn(use_ratio=ratio/100, mask_positive=False),
-            },
-        }
-        
-    return {
-        f'{prefix}': {
-            'model': 'lm-gearnet',
-            'model_kwargs': {
-                'lm_type': 'esm-t33',
-                'gearnet_hidden_dim_size': hidden_dim_size,
-                'lm_freeze_layer_count': 30,
-            },
-        },
-        f'{prefix}-20-cycle': {
-            'model': 'lm-gearnet',
-            'model_kwargs': {
-                'lm_type': 'esm-t33',
-                'gearnet_hidden_dim_size': hidden_dim_size,
-                'lm_freeze_layer_count': 30,
-            },
-            'cycle_size': 20,
-        },
-        f'{prefix}-pretrained': {
-            'model': 'lm-gearnet',
-            'model_kwargs': {
-                'lm_type': 'esm-t33',
-                'gearnet_hidden_dim_size': hidden_dim_size,
-                'lm_freeze_layer_count': 30,
-            },
-            'pipeline_before_train_fn': load_pretrained_fn(f'weight/atpbind3d_{prefix}_1.pt'),
-        },
-        f'{prefix}-ensemble': {
-            'ensemble_count': 10,
-            'model_ref': f'{prefix}',
-        },
-        f'{prefix}-pretrained-ensemble': {
-            'ensemble_count': 10,
-            'model_ref': f'{prefix}-pretrained',
-        },
-        **generate_ratio_method(prefix, 90),
-        **generate_ratio_method(prefix, 80),
-        **generate_ratio_method(prefix, 70),
-        **generate_ratio_method(prefix, 50),
-        **generate_ratio_method(prefix, 10),
-    }
-
 ALL_PARAMS = {
     'gvp': {
         'model': 'gvp-encoder',
@@ -228,54 +115,6 @@ ALL_PARAMS = {
             'node_feature_type': 'gvp_data',
         },
     },
-    'gvp-100-cycle': {
-        'model': 'gvp-encoder',
-        'model_kwargs': {
-            'node_in_dim': (6, 3),
-            'node_h_dim': (100, 16),
-            'edge_in_dim': (32, 1),
-            'edge_h_dim': (32, 1),
-            'num_layers': 3,
-            'drop_rate': 0.1,
-            'output_dim': 20,
-        },
-        'task_kwargs': {
-            'node_feature_type': 'gvp_data',
-        },
-        'cycle_size': 100,
-    },
-    'gvp-20-cycle': {
-        'model': 'gvp-encoder',
-        'model_kwargs': {
-            'node_in_dim': (6, 3),
-            'node_h_dim': (100, 16),
-            'edge_in_dim': (32, 1),
-            'edge_h_dim': (32, 1),
-            'num_layers': 3,
-            'drop_rate': 0.1,
-            'output_dim': 20,
-        },
-        'task_kwargs': {
-            'node_feature_type': 'gvp_data',
-        },
-        'cycle_size': 20,
-    },
-    'gvp-50-cycle': {
-        'model': 'gvp-encoder',
-        'model_kwargs': {
-            'node_in_dim': (6, 3),
-            'node_h_dim': (100, 16),
-            'edge_in_dim': (32, 1),
-            'edge_h_dim': (32, 1),
-            'num_layers': 3,
-            'drop_rate': 0.1,
-            'output_dim': 20,
-        },
-        'task_kwargs': {
-            'node_feature_type': 'gvp_data',
-        },
-        'cycle_size': 50,
-    },
     'esm-t33': {
         'model': 'esm-t33',
         'model_kwargs': {
@@ -291,20 +130,6 @@ ALL_PARAMS = {
         },
         'pipeline_before_train_fn': load_pretrained_fn('weight/atpbind3d_esm-t33_1.pt'),
     },
-    'esm-t36': {
-        'model': 'esm-t36',
-        'model_kwargs': {
-            'freeze_esm': False,
-            'freeze_layer_count': 35,
-        },
-    },
-    'esm-t30': {
-        'model': 'esm-t30',
-        'model_kwargs': {
-            'freeze_esm': False,
-            'freeze_layer_count': 27,
-        },
-    },
     'bert': {
         'model': 'bert',
         'model_kwargs': {
@@ -318,14 +143,6 @@ ALL_PARAMS = {
             'input_dim': 21,
             'hidden_dims': [512] * 4,
         },
-    },
-    'gearnet-20-cycle': {
-        'model': 'gearnet',
-        'model_kwargs': {
-            'input_dim': 21,
-            'hidden_dims': [512] * 4,
-        },
-        'cycle_size': 20,
     },
     'bert-gearnet': {
         'model': 'lm-gearnet',
@@ -351,71 +168,49 @@ ALL_PARAMS = {
             'cycle_size': [20, 10],
         }
     },
-    'esm-t33-gvp-c10': {
-        'model': 'esm-t33-gvp',
-        'model_kwargs': {
-            'lm_freeze_layer_count': 30,
-        },
-        'cycle_size': 20,
-        'task_kwargs': {'node_feature_type': 'gvp_data'},
-    },
-    'esm-t33-gvp-c20': {
-        'model': 'esm-t33-gvp',
-        'model_kwargs': {
-            'lm_freeze_layer_count': 30,
-        },
-        'cycle_size': 20,
-        'task_kwargs': {'node_feature_type': 'gvp_data'},
-    },
-    'esm-t33-gvp-c50': {
-        'model': 'esm-t33-gvp',
-        'model_kwargs': {
-            'lm_freeze_layer_count': 30,
-        },
-        'cycle_size': 50,
-        'task_kwargs': {'node_feature_type': 'gvp_data'},
-    },
-    'esm-t33-gvp-c100': {
-        'model': 'esm-t33-gvp',
-        'model_kwargs': {
-            'lm_freeze_layer_count': 30,
-        },
-        'cycle_size': 100,
-        'task_kwargs': {'node_feature_type': 'gvp_data'},
-    },
-    'esm-t36-gearnet': {
-        'model': 'lm-gearnet',
-        'model_kwargs': {
-            'lm_type': 'esm-t36',
-            'gearnet_hidden_dim_size': 512,
-            'gearnet_hidden_dim_count': 4,
-            'lm_freeze_layer_count': 35,
-        },
-    },
-    'esm-t30-gearnet': {
-        'model': 'lm-gearnet',
-        'model_kwargs': {
-            'lm_type': 'esm-t30',
-            'gearnet_hidden_dim_size': 512,
-            'gearnet_hidden_dim_count': 4,
-            'lm_freeze_layer_count': 27,
-        },
-    },
     'esm-t33-ensemble': {
         'ensemble_count': 10,
         'model': 'esm-t33',
         'model_kwargs': {
             'freeze_esm': False,
-            'freeze_layer_count': 30,  
+            'freeze_layer_count': 30,
         },
     },
-    **generate_esm_t33_gearnet_params([512, 512, 512, 512], 'esm-t33-gearnet'),
-    **generate_esm_t33_gearnet_params([640]),
-    **generate_esm_t33_gearnet_params([640, 640]),
-    **generate_esm_t33_gearnet_params([960, 960]),
-    **generate_esm_t33_gearnet_params([800, 800, 800]),
-    **generate_esm_t33_gearnet_params([800, 800, 800, 800]),
-    **generate_esm_t33_gearnet_params([320, 320, 320, 320]),
+    'esm-t33-gearnet': {
+        'model': 'lm-gearnet',
+        'model_kwargs': {
+            'lm_type': 'esm-t33',
+            'gearnet_hidden_dim_size': 512,
+            'gearnet_hidden_dim_count': 4,
+            'lm_freeze_layer_count': 30,
+        },
+        'max_slice_length': 500,
+        'padding': 50,
+        'hyperparameters': { 
+            'model_kwargs.lm_freeze_layer_count': [28, 29, 30, 31, 32],
+            'max_slice_length': [300, 400, 500, 600, 700],
+            'padding': [25, 50, 75, 100],
+        }
+    },
+    'esm-t33-gearnet-pretrained': {
+        'model': 'lm-gearnet',
+        'model_kwargs': {
+            'lm_type': 'esm-t33',
+            'gearnet_hidden_dim_size': 512,
+            'gearnet_hidden_dim_count': 4,
+            'lm_freeze_layer_count': 30,
+        },
+        'pretrained_weight_path': 'weight/atpbind3d_esm-t33-gearnet_1.pt',
+    },
+    'esm-t33-gearnet-boost': {
+        'model': 'lm-gearnet',
+        'ensemble_count': 10,
+        'model_ref': 'esm-t33-gearnet',
+        'ensemble_hyperparameters': {
+            'boost_negative_use_ratio': [0.1, 0.2, 0.5, 0.9],
+            'boost_mask_positive': [True, False],
+        }
+    },
 }
 
 
@@ -440,6 +235,19 @@ def save_pipeline_weight(pipeline, path):
     torch.save(filtered_state_dict, path)
     logger.info('Done saving weight')
     
+def get_batch_size_and_gradient_interval(dataset, batch_size, gradient_interval, max_slice_length):
+    if batch_size is None: # use default
+        if dataset == 'atpbind3d' and max_slice_length <= 500:
+            batch_size = 8
+            gradient_interval = 1
+        elif dataset == 'atpbind3d' and max_slice_length > 500:
+            batch_size = 4
+            gradient_interval = 2
+        else:
+            batch_size = 2
+            gradient_interval = 1
+    return batch_size, gradient_interval
+
 def single_run(
     dataset,
     valid_fold_num,
@@ -458,7 +266,10 @@ def single_run(
     base_lr=3e-4,
     max_lr=3e-3,
     task_kwargs={},
+    pretrained_weight_path=None,
 ):
+    logger.info(f'single_run: dataset={dataset}, model={model}, model_kwargs={model_kwargs}, max_slice_length={max_slice_length}, padding={padding}, batch_size={batch_size}, gradient_interval={gradient_interval}')
+    batch_size, gradient_interval = get_batch_size_and_gradient_interval(dataset, batch_size, gradient_interval, max_slice_length)
     clear_cache()
     gpu = gpu or GPU
     pipeline = Pipeline(
@@ -470,7 +281,7 @@ def single_run(
             **model_kwargs,
         },
         valid_fold_num=valid_fold_num,
-        batch_size=(8 if batch_size is None else batch_size) if dataset == 'atpbind3d' else 2,
+        batch_size=batch_size,
         gradient_interval=gradient_interval,
         scheduler='cyclic',
         scheduler_kwargs={
@@ -488,7 +299,13 @@ def single_run(
         task_kwargs=task_kwargs,
     )
     
-    if pipeline_before_train_fn:
+    if pretrained_weight_path is not None:
+        load_path = get_data_path(pretrained_weight_path)
+        logger.info(f'Loading weight from {load_path}')
+        pipeline.task.load_state_dict(torch.load(load_path), strict=False)
+        logger.info('Done loading weight')
+    
+    if pipeline_before_train_fn is not None: # mainly, for resiboost_preprocess passed from ensemble_run
         pipeline_before_train_fn(pipeline)
 
     train_record = pipeline.train_until_fit(
@@ -529,33 +346,38 @@ def ensemble_run(
     model_ref,
     ensemble_count,
     gpu=None,
-    pipeline_before_train_fn=None,
     save_weight=False,
     original_model_key=None,
-    extra_kwargs={},
+    boost_negative_use_ratio=None,
+    boost_mask_positive=False,
 ):
     df_trains = []
     df_valids = []
     df_tests = []
     for i in range(ensemble_count):
-        pipeline_before_train_fn_ls = [
-            ALL_PARAMS[model_ref].get('pipeline_before_train_fn', None), # fn for single run (ex. load pretrained weight)
-            pipeline_before_train_fn(df_trains) if pipeline_before_train_fn else None, # fn for ensemble run (ex. set resiboost mask)
-        ]
-        pipeline_before_train_fn_ls = [i for i in pipeline_before_train_fn_ls if i]
-        
         # remove pipeline_before_train_fn from single_run kwargs to remove possible duplicate
         all_params = ALL_PARAMS[model_ref].copy()
-        if 'pipeline_before_train_fn' in all_params:
-            del all_params['pipeline_before_train_fn']
+        # pop hyperparameters. 
+        # On ensemble run, the value specified in the root dictionary (rather than those inside hyperparameters dict) will be used
+        all_params.pop('hyperparameters', None)
+        
+        if boost_negative_use_ratio is not None:
+            pipeline_before_train_fn = make_resiboost_preprocess_fn(
+                df_trains=df_trains,
+                negative_use_ratio=boost_negative_use_ratio,
+                mask_positive=boost_mask_positive,
+            )
+        else:
+            pipeline_before_train_fn = None
+        
+        
         res = single_run(
             dataset=dataset,
             gpu=gpu,
             valid_fold_num=valid_fold_num,
             **all_params,
-            pipeline_before_train_fn=lambda pipeline: [fn(pipeline) for fn in pipeline_before_train_fn_ls],
+            pipeline_before_train_fn=pipeline_before_train_fn,
             return_df=True,
-            **extra_kwargs,
         )
         if save_weight:
             file = f'weight/{dataset}_{original_model_key}_{valid_fold_num}_{i}.pt'
@@ -620,21 +442,44 @@ def update_nested_dict(d, key, value):
         d = d.setdefault(k, {})
     d[keys[-1]] = value
 
-def main(dataset, model_key, valid_fold, extra_kwargs={}, save_weight=False):
+def check_if_run_exists(result_file, model_key, valid_fold, hp_combination):
+    if not os.path.exists(result_file):
+        return False
+    
+    df = pd.read_csv(result_file)
+    
+    # Filter for the specific model_key and valid_fold
+    df = df[(df['model_key'] == model_key) & (df['valid_fold'] == valid_fold)]
+    
+    # Check if all hyperparameters match
+    for key, value in hp_combination.items():
+        if key in df.columns:
+            df = df[df[key] == value]
+    
+    return len(df) > 0
+
+def main_single_run(dataset, model_key, valid_folds, save_weight=False):
     model = ALL_PARAMS[model_key]
-    if 'ensemble_count' not in model: # single run model
-        hyperparameters = model.get('hyperparameters', {})
-        if hyperparameters:
-            combinations = get_hyperparameter_combinations(hyperparameters)
-        else:
-            combinations = [{}]
-        
-        for i, hp_combination in enumerate(combinations):
-            logger.info(f'main: Running {model_key} with hyperparameters: {hp_combination}')
+    hyperparameters = model.get('hyperparameters', {})
+    if hyperparameters:
+        combinations = get_hyperparameter_combinations(hyperparameters)
+    else:
+        combinations = [{}]
+
+    logger.info(f"Hyperparameters for {model_key}: {hyperparameters}")
+
+    result_file = get_data_path(f'result/{dataset}_{model_key}_stats.csv')
+
+    for i, hp_combination in enumerate(combinations):
+        for valid_fold in valid_folds:
+            if check_if_run_exists(result_file, model_key, valid_fold, hp_combination):
+                logger.info(f'Skipping model_key={model_key}, fold={valid_fold}, hp_combination={hp_combination} as it has already been run.')
+                continue
+
+            logger.info(f'main: Running single model "{model_key}", valid_fold={valid_fold} with hyperparameters: {hp_combination}')
             updated_model = model.copy()
             updated_model.pop('hyperparameters', None)
-            
-            # Update nested dictionary
+
             for key, value in hp_combination.items():
                 update_nested_dict(updated_model, key, value)
             logger.info(f'main: Updated model: {updated_model}')
@@ -644,46 +489,68 @@ def main(dataset, model_key, valid_fold, extra_kwargs={}, save_weight=False):
                 valid_fold_num=valid_fold,
                 save_weight=save_weight,
                 **updated_model,
-                **extra_kwargs,
             )
-            
+
             write_result(
                 model_key=model_key,
                 valid_fold=valid_fold,
                 result_dict=result_dict,
-                additional_record={**extra_kwargs, **hp_combination, 'hp_combination': i},
-                result_file=get_data_path(f'result/{dataset}_{model_key}_stats.csv')
+                additional_record={**hp_combination, 'hp_combination': i},
+                result_file=result_file
             )
+
+def main_ensemble_run(dataset, model_key, valid_folds, save_weight=False):
+    model = ALL_PARAMS[model_key]
+    ensemble_count = model['ensemble_count']
+    model_ref = model['model_ref']
+    hyperparameters = model.get('ensemble_hyperparameters', {})
+    if hyperparameters:
+        combinations = get_hyperparameter_combinations(hyperparameters)
     else:
-        ensemble_count = model['ensemble_count']
-        model_ref = model['model_ref']
-        pipeline_before_train_fn = model.get('pipeline_before_train_fn', None)
-        result_dict = ensemble_run(
-            dataset=dataset,
-            original_model_key=model_key,
-            ensemble_count=ensemble_count,
-            valid_fold_num=valid_fold,
-            model_ref=model_ref,
-            pipeline_before_train_fn=pipeline_before_train_fn,
-            save_weight=save_weight,
-            **extra_kwargs,
-        )
-    
-        write_result(
-            model_key=model_key,
-            valid_fold=valid_fold,
-            result_dict=result_dict,
-            additional_record=extra_kwargs,
-            result_file=get_data_path(f'result/{dataset}_{model_key}_stats.csv')
-        )
+        combinations = [{}]
+
+    result_file = get_data_path(f'result/{dataset}_{model_key}_stats.csv')
+
+    for i, hp_combination in enumerate(combinations):
+        for valid_fold in valid_folds:
+            if check_if_run_exists(result_file, model_key, valid_fold, hp_combination):
+                logger.info(f'Skipping ensemble of model_key={model_key}, valid_fold={valid_fold}, hp_combination={hp_combination} as it has already been run.')
+                continue
+
+            logger.info(f'main: Running ensemble model "{model_key}", valid_fold={valid_fold} with hyperparameters: {hp_combination}')
+            result_dict = ensemble_run(
+                dataset=dataset,
+                original_model_key=model_key,
+                ensemble_count=ensemble_count,
+                valid_fold_num=valid_fold,
+                model_ref=model_ref,
+                save_weight=save_weight,
+                **hp_combination,
+            )
+
+            write_result(
+                model_key=model_key,
+                valid_fold=valid_fold,
+                result_dict=result_dict,
+                additional_record={**hp_combination, 'hp_combination': i},
+                result_file=result_file
+            )
+
+def main(dataset, model_key, valid_folds, save_weight=False):
+    if 'ensemble_count' not in ALL_PARAMS[model_key]: # single run model
+        main_single_run(dataset, model_key, valid_folds, save_weight)
+    else:
+        main_ensemble_run(dataset, model_key, valid_folds, save_weight)
+
 
 def write_result(model_key, 
                  valid_fold, 
                  result_dict,
+                 additional_record={},
                  write_inference=False,
                  result_file='result/result_cv.csv',
-                 additional_record={},
                  ):
+    
     # write dataframes to result/{model_key}/fold_{valid_fold}/{train | valid | test}.csv
     # aggregate record to result/result_cv.csv
     if write_inference:
@@ -701,30 +568,18 @@ def write_result(model_key,
         if key in record_dict:
             del record_dict[key]
             
+    logger.info(f'write_result: record_dict: {record_dict}')
+            
     added_record = {
         'model_key': model_key,
         'valid_fold': valid_fold,
-        **additional_record,
         **record_dict,
+        **additional_record,
         'finished_at': pd.Timestamp.now().strftime('%Y-%m-%d %X'),
     }
     new_record_df = pd.DataFrame([added_record])
     record_df = pd.concat([record_df, new_record_df], ignore_index=True)
-    
-    # Reorder columns to match the order in added_record
-    column_order = list(added_record.keys())
-    record_df = record_df.reindex(columns=column_order)
-    
     record_df.to_csv(result_file, index=False)
-
-def log_hyperparameters(custom_hyperparameters):
-    log_message = "Custom hyperparameters:\n"
-    for model, params in custom_hyperparameters.items():
-        log_message += f"  {model}:\n"
-        for param, values in params.items():
-            log_message += f"    {param}: {values}\n"
-    logger.info(log_message)
-    send_to_discord_webhook(f"Custom hyperparameters set:\n```\n{log_message}\n```")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -749,13 +604,9 @@ if __name__ == '__main__':
     else:
         model_keys = args.model_keys
         
-    
     logger.info(f'Using default GPU {args.gpu}')
     logger.info(f'Running model keys {model_keys}')
     logger.info(f'Running valid folds {args.valid_folds}')
-    
-    # set this on need
-    extra_kwargs = []
     
     start_time = datetime.datetime.now()
     send_to_discord_webhook(f'Started job at {start_time}. model_keys: {model_keys}, dataset: {args.dataset}, valid_folds: {args.valid_folds}')
@@ -763,7 +614,6 @@ if __name__ == '__main__':
     hyperparameter_info = ""
     if args.hyperparameters:
         custom_hyperparameters = parse_hyperparameters(args.hyperparameters)
-        log_hyperparameters(custom_hyperparameters)
         for model_key, params in custom_hyperparameters.items():
             if model_key in ALL_PARAMS:
                 if 'hyperparameters' not in ALL_PARAMS[model_key]:
@@ -780,16 +630,12 @@ if __name__ == '__main__':
             for model_key in model_keys:
                 logger.info(f"Running model: {model_key}")
                 if model_key in ALL_PARAMS and 'hyperparameters' in ALL_PARAMS[model_key]:
-                    logger.info(f"Hyperparameters for {model_key}: {ALL_PARAMS[model_key]['hyperparameters']}")
-                for valid_fold in args.valid_folds:
-                    if not extra_kwargs:
-                        extra_kwargs = [{}]
-                    for kwargs in extra_kwargs:
-                        logger.info(f'Running {model_key}, dataset {dataset}, fold {valid_fold}, extra_kwargs {kwargs}')
+                    logger.info(f'Running {model_key}, dataset {dataset}')
+                    for valid_fold in args.valid_folds:
                         main(
-                            dataset=dataset, model_key=model_key, valid_fold=valid_fold, extra_kwargs=kwargs,
+                            dataset=dataset, model_key=model_key, valid_folds=[valid_fold],
                             save_weight=args.save_weight,
-                            )
+                        )
         send_to_discord_webhook(f'Finished job started at {start_time}. model_keys: {model_keys}, dataset: {args.dataset}, valid_folds: {args.valid_folds}{hyperparameter_info}')
     except KeyboardInterrupt:
         send_to_discord_webhook(f'You requested to stop the job started at {start_time}{hyperparameter_info}.')
