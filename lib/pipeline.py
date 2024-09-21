@@ -45,14 +45,23 @@ def format_timedelta(td: timedelta) -> str:
 
 
 @cache
-def get_dataset(dataset, to_slice=True, max_slice_length=550, padding=100):
+def get_dataset(dataset, to_slice=True, max_slice_length=550, padding=100, load_gvp=True):
     print(f'get dataset {dataset}')
-    if dataset in ['atpbind3d', 'atpbind3d-minimal']:
+    if dataset in ['atpbind3d', 'atpbind3d-minimal', 'atpbind3d-1930', 'atpbind3d-1930-minimal']:
         protein_view_transform = transforms.ProteinView(view='residue')
         transform = transforms.Compose([protein_view_transform])
 
-        limit = 5 if dataset == 'atpbind3d-minimal' else -1
-        return ATPBind3D(transform=transform, limit=limit, to_slice=to_slice, max_slice_length=max_slice_length, padding=padding)
+        limit = 5 if 'minimal' in dataset else -1
+        train_set = 'atp-1930' if '1930' in dataset else 'atp-388'
+        return ATPBind3D(
+            transform=transform, 
+            train_set=train_set, 
+            limit=limit, 
+            to_slice=to_slice, 
+            max_slice_length=max_slice_length, 
+            padding=padding,
+            load_gvp=load_gvp,
+        )
     elif dataset in ['atpbind3d-esm']:
         return ATPBindTestEsm()
     elif dataset in CUSTOM_DATASET_TYPES:
@@ -181,7 +190,11 @@ class Pipeline:
             print(f'get dataset with kwargs: {dataset_kwargs}')                  
         else:
             raise ValueError('Are you sure?')
-        self.dataset = get_dataset(dataset, **dataset_kwargs)
+        self.dataset = get_dataset(
+            dataset, 
+            **dataset_kwargs, 
+            load_gvp=task_kwargs.get('node_feature_type', None) == 'gvp_data',
+        )
         self.valid_fold_num = valid_fold_num
         self.train_set, self.valid_set, self.test_set = self.dataset.initialize_mask_and_weights().split(valid_fold_num=valid_fold_num)
         print("train samples: %d, valid samples: %d, test samples: %d" %

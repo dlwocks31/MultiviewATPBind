@@ -82,7 +82,8 @@ class ATPBind3D(data.ProteinDataset):
     
     def load_pdbs(self, pdb_files, transform=None, lazy=False, verbose=0, **kwargs):
         """
-        Adapted from torchdrug.data.ProteinDataset.load_pdbs
+        Adapted from torchdrug.data.ProteinDataset.load_pdbs,
+        in order to add sanitize=False to Chem.MolFromPDBFile
         
         Load the dataset from pdb files.
 
@@ -124,19 +125,34 @@ class ATPBind3D(data.ProteinDataset):
             self.pdb_files.append(pdb_file)
             self.sequences.append(protein.to_sequence() if protein else None)
     
-    def load_proteins(self, proteins, **kwargs):
-        self.data = proteins
-        self.pdb_files = [None] * len(proteins)
-        self.sequences = [protein_to_sequence(protein) if protein else None for protein in proteins]
-    
-    def __init__(self, proteins=None, path=None, limit=-1, to_slice=False, max_slice_length=500, padding=50, transform=None):
-        if path is None:
+    def get_data_path(self, trainset):
+        if trainset == 'atp-388':
             joined_path = os.path.join(os.path.dirname(__file__), '../data/atp')
             data_path = os.path.normpath(joined_path)
-        _, targets, pdb_ids = self.get_seq_target(data_path, limit)
-        pdb_files = [os.path.join(data_path, f'{pdb_id}.pdb')
-                     for pdb_id in pdb_ids]
+        elif trainset == 'atp-1930':
+            joined_path = os.path.join(os.path.dirname(__file__), '../data/atp-1930-esm')
+            data_path = os.path.normpath(joined_path)
+        else:
+            raise ValueError(f'Unknown trainset: {trainset}')
+        return data_path
+        
+        
+    
+    def __init__(self, path=None, train_set='atp-388', limit=-1, to_slice=False, max_slice_length=500, padding=50, transform=None, load_gvp=True):
+        if train_set == 'atp-388':
+            if path is None:
+                path = os.path.normpath(os.path.join(
+                    os.path.dirname(__file__), '../data/atp'))
+            targets, pdb_files = self.get_seq_target(path=path, limit=limit)
+        elif train_set == 'atp-1930':
+            train_path = os.path.normpath(os.path.join(
+                os.path.dirname(__file__), '../data/atp-1930-esm'))
+            test_path = os.path.normpath(os.path.join(
+                os.path.dirname(__file__), '../data/atp'))
 
+            targets, pdb_files = self.get_seq_target_1930(train_path, test_path, limit)
+
+        logger.info(f'ATPBind3D: start loading {len(pdb_files)} pdbs')
         self.load_pdbs(pdb_files, transform=transform, atom_feature=None)
         self.targets = defaultdict(list)
         self.targets["binding"] = targets["binding"]
@@ -169,14 +185,19 @@ class ATPBind3D(data.ProteinDataset):
         self.fold_ranges = np.array_split(np.arange(self.train_sample_count), self.fold_count)
         
         # load gvp data
-        gvp_json_records = [parse_protein_to_json_record(protein)
-                            for protein in self.data]
-        self.gvp_dataset = gvp_data.ProteinGraphDataset(gvp_json_records)
-        assert(len(self.data) == len(self.gvp_dataset))
-        for protein, json_record in zip(self.data, gvp_json_records):
-            if protein.num_residue != json_record['coords'].shape[0]:
-                print(f'ERROR: protein: {protein.num_residue}, gvp_graph: {json_record["coords"].shape[0]}')
-        logger.info(f'ATPBind3D: loaded {len(self.gvp_dataset)} gvp graphs. length of data: {len(self.data)}')
+        if load_gvp:
+            logger.info(f'ATPBind3D: start loading {len(self.data)} gvp graphs')
+            gvp_json_records = [parse_protein_to_json_record(protein)
+                                for protein in self.data]
+            self.gvp_dataset = gvp_data.ProteinGraphDataset(gvp_json_records)
+            assert(len(self.data) == len(self.gvp_dataset))
+            for protein, json_record in zip(self.data, gvp_json_records):
+                if protein.num_residue != json_record['coords'].shape[0]:
+                    print(f'ERROR: protein: {protein.num_residue}, gvp_graph: {json_record["coords"].shape[0]}')
+            logger.info(f'ATPBind3D: loaded {len(self.gvp_dataset)} gvp graphs. length of data: {len(self.data)}')
+        else:
+            self.gvp_dataset = None
+            logger.info('ATPBind3D: skipped loading gvp data')
 
 
     def initialize_mask_and_weights(self, masks=None, weights=None):
@@ -201,8 +222,61 @@ class ATPBind3D(data.ProteinDataset):
             ]
         return self
 
+    def get_seq_target_1930(self, train_path, test_path, limit=-1):
+        # Read sequences
+        seq_file = os.path.join(train_path, 'PATP-1930_seq.fa')
+        with open(seq_file, 'r') as file:
+            seq_content = file.read().strip().split('\n')
+        train_proteins = []
+        for i in range(0, len(seq_content), 2):
+            if i + 1 < len(seq_content):
+                header = seq_content[i]
+                sequence = seq_content[i + 1]
+                train_proteins.append({'id': header[1:], 'sequence': sequence})
+            else:
+                logger.info("The FASTA file does not contain a valid sequence.")
+        
+        # Read labels
+        lab_file = os.path.join(train_path, 'PATP-1930_lab.fa')
+        with open(lab_file, 'r') as file:
+            lab_content = file.read().strip().split('\n')
+
+        for i in range(0, len(lab_content), 2):
+            if i + 1 < len(lab_content):
+                header = lab_content[i]
+                label = lab_content[i + 1]
+                entry = train_proteins[i // 2]
+                entry['label'] = [int(label_value) for label_value in label]
+                assert (entry['id'] == header[1:])
+                assert(len(entry['label']) == len(entry['sequence']))
+            else:
+                logger.info("The LAB file does not contain a valid label.")
+        
+        if limit > 0:
+            train_proteins = train_proteins[:limit]
+            
+        _, _, test_targets, test_pdb_ids = read_file(os.path.join(test_path, 'test.txt'))
+        if limit > 0:
+            test_targets = test_targets[:limit]
+            test_pdb_ids = test_pdb_ids[:limit]
+        
+        targets, pdb_files = [], []
+        
+        for protein in train_proteins:
+            targets.append(protein['label'])
+            pdb_files.append(os.path.join(train_path, f'{protein["id"]}.pdb'))
+        self.train_sample_count = len(train_proteins)
+
+        for test_target, test_pdb_id in zip(test_targets, test_pdb_ids):
+            targets.append(test_target)
+            pdb_files.append(os.path.join(test_path, f'{test_pdb_id}.pdb'))
+        self.test_sample_count = len(test_targets)
+        
+        return {"binding": targets}, pdb_files
+    
+
     def get_seq_target(self, path, limit):
-        sequences, targets, pdb_ids = [], [], []
+        targets, pdb_files = [], []
 
         for file in ['train.txt', 'test.txt']:
             num_samples, seq, tgt, ids = read_file(os.path.join(path, file))
@@ -212,18 +286,17 @@ class ATPBind3D(data.ProteinDataset):
                 tgt = tgt[:limit]
                 ids = ids[:limit]
 
-            sequences += seq
             targets += tgt
-            pdb_ids += ids
-
+            pdb_files += [os.path.join(path, f'{pdb_id}.pdb') for pdb_id in ids]
+            
             if file == 'train.txt':
                 self.train_sample_count = len(seq)
             elif file == 'test.txt':
                 self.test_sample_count = len(seq)
             else:
                 raise NotImplementedError
-
-        return sequences, {"binding": targets}, pdb_ids
+            
+        return {"binding": targets}, pdb_files
 
 
     def _is_train_set(self, index):
@@ -246,7 +319,6 @@ class ATPBind3D(data.ProteinDataset):
 
     def get_item(self, index):
         graph = self.data[index]
-        gvp_data = self.gvp_dataset[index]
         
         with graph.residue():
             target = torch.as_tensor(
@@ -256,7 +328,9 @@ class ATPBind3D(data.ProteinDataset):
             graph.mask = self._get_mask(index).view(-1, 1)
             graph.weight = self._get_weight(index).view(-1, 1)
         graph.view = 'residue'
-        item = {"graph": graph, "gvp_data": gvp_data}
+        item = {"graph": graph}
+        if self.gvp_dataset is not None:
+            item["gvp_data"] = self.gvp_dataset[index]
         if self.transform:
             item = self.transform(item)
         # print(f'get_item {index}, mask {item["graph"].mask.sum()} / {len(item["graph"].mask)}')
@@ -438,6 +512,7 @@ class CustomBindDataset(data.ProteinDataset):
                 for target in self.targets["binding"]
             ]
         return self
+
 
 def read_file(path):
     '''

@@ -114,6 +114,7 @@ ALL_PARAMS = {
         'task_kwargs': {
             'node_feature_type': 'gvp_data',
         },
+        'cycle_size': 50,
     },
     'esm-t33': {
         'model': 'esm-t33',
@@ -186,8 +187,8 @@ ALL_PARAMS = {
         },
         'max_slice_length': 500,
         'padding': 50,
-        'hyperparameters': { 
-            'model_kwargs.lm_freeze_layer_count': [28, 29, 30, 31, 32],
+        'hyperparameters': {
+            'model_kwargs.lm_freeze_layer_count': [27, 28, 29, 30, 31, 32, 33],
             'max_slice_length': [300, 400, 500, 600, 700],
             'padding': [25, 50, 75, 100],
         }
@@ -202,13 +203,13 @@ ALL_PARAMS = {
         },
         'pretrained_weight_path': 'weight/atpbind3d_esm-t33-gearnet_1.pt',
     },
-    'esm-t33-gearnet-boost': {
+    'esm-t33-gearnet-resiboost': {
         'model': 'lm-gearnet',
         'ensemble_count': 10,
         'model_ref': 'esm-t33-gearnet',
-        'ensemble_hyperparameters': {
+        'hyperparameters': {
             'boost_negative_use_ratio': [0.1, 0.2, 0.5, 0.9],
-            'boost_mask_positive': [True, False],
+            'boost_mask_positive': [False, True],
         }
     },
 }
@@ -237,10 +238,11 @@ def save_pipeline_weight(pipeline, path):
     
 def get_batch_size_and_gradient_interval(dataset, batch_size, gradient_interval, max_slice_length):
     if batch_size is None: # use default
-        if dataset == 'atpbind3d' and max_slice_length <= 500:
+        THRESHOLD = 400
+        if 'atpbind3d' in dataset and max_slice_length <= THRESHOLD:
             batch_size = 8
             gradient_interval = 1
-        elif dataset == 'atpbind3d' and max_slice_length > 500:
+        elif 'atpbind3d' in dataset and max_slice_length > THRESHOLD:
             batch_size = 4
             gradient_interval = 2
         else:
@@ -354,11 +356,12 @@ def ensemble_run(
     df_trains = []
     df_valids = []
     df_tests = []
+    logger.info(f'ensemble_run: dataset={dataset}, model_ref={model_ref}, ensemble_count={ensemble_count}, boost_negative_use_ratio={boost_negative_use_ratio}, boost_mask_positive={boost_mask_positive}')
     for i in range(ensemble_count):
         # remove pipeline_before_train_fn from single_run kwargs to remove possible duplicate
         all_params = ALL_PARAMS[model_ref].copy()
-        # pop hyperparameters. 
-        # On ensemble run, the value specified in the root dictionary (rather than those inside hyperparameters dict) will be used
+        # pop hyperparameters. On ensemble run, the value specified in the root dictionary
+        # (rather than those inside hyperparameters dict) will be used
         all_params.pop('hyperparameters', None)
         
         if boost_negative_use_ratio is not None:
@@ -503,11 +506,13 @@ def main_ensemble_run(dataset, model_key, valid_folds, save_weight=False):
     model = ALL_PARAMS[model_key]
     ensemble_count = model['ensemble_count']
     model_ref = model['model_ref']
-    hyperparameters = model.get('ensemble_hyperparameters', {})
+    hyperparameters = model.get('hyperparameters', {})
     if hyperparameters:
         combinations = get_hyperparameter_combinations(hyperparameters)
     else:
         combinations = [{}]
+        
+    logger.info(f'main_ensemble_run: hyperparameters={hyperparameters}')
 
     result_file = get_data_path(f'result/{dataset}_{model_key}_stats.csv')
 
@@ -609,40 +614,46 @@ if __name__ == '__main__':
     logger.info(f'Running valid folds {args.valid_folds}')
     
     start_time = datetime.datetime.now()
-    send_to_discord_webhook(f'Started job at {start_time}. model_keys: {model_keys}, dataset: {args.dataset}, valid_folds: {args.valid_folds}')
+
     
-    hyperparameter_info = ""
+    
+    
     if args.hyperparameters:
-        custom_hyperparameters = parse_hyperparameters(args.hyperparameters)
-        for model_key, params in custom_hyperparameters.items():
-            if model_key in ALL_PARAMS:
+        if args.hyperparameters == 'none':
+            for model_key in ALL_PARAMS:
                 if 'hyperparameters' not in ALL_PARAMS[model_key]:
                     ALL_PARAMS[model_key]['hyperparameters'] = {}
-                ALL_PARAMS[model_key]['hyperparameters'].update(params)
-                logger.info(f"Updated hyperparameters for {model_key}")
-            else:
-                logger.warning(f"Model key '{model_key}' not found in ALL_PARAMS. Skipping.")
-        
-        hyperparameter_info = f", custom hyperparameters: {args.hyperparameters}"
-
+        else:
+            custom_hyperparameters = parse_hyperparameters(args.hyperparameters)
+            for model_key, params in custom_hyperparameters.items():
+                if model_key in ALL_PARAMS:
+                    ALL_PARAMS[model_key].setdefault('hyperparameters', {})
+                    ALL_PARAMS[model_key]['hyperparameters'].update(params)
+                    logger.info(f"Updated hyperparameters for {model_key}")
+                else:
+                    logger.warning(f"Model key '{model_key}' not found in ALL_PARAMS. Skipping.")
+    # Read the command line used to start the current process
+    with open("/proc/self/cmdline", "r") as f:
+        cmdline = f.read().replace('\0', ' ').strip()
+    send_to_discord_webhook(f'Started job at {start_time}. Command: `{cmdline}`')
     try:
         for dataset in args.dataset:
             for model_key in model_keys:
                 logger.info(f"Running model: {model_key}")
-                if model_key in ALL_PARAMS and 'hyperparameters' in ALL_PARAMS[model_key]:
+                if model_key in ALL_PARAMS:
                     logger.info(f'Running {model_key}, dataset {dataset}')
                     for valid_fold in args.valid_folds:
                         main(
                             dataset=dataset, model_key=model_key, valid_folds=[valid_fold],
                             save_weight=args.save_weight,
                         )
-        send_to_discord_webhook(f'Finished job started at {start_time}. model_keys: {model_keys}, dataset: {args.dataset}, valid_folds: {args.valid_folds}{hyperparameter_info}')
+        send_to_discord_webhook(f'Finished job `{cmdline}` started at {start_time}')
     except KeyboardInterrupt:
-        send_to_discord_webhook(f'You requested to stop the job started at {start_time}{hyperparameter_info}.')
+        send_to_discord_webhook(f'You requested to stop the job `{cmdline}` started at {start_time}')
         logger.info('Received KeyboardInterrupt. Exit.')
         exit(0)
     except Exception as e:
-        send_to_discord_webhook(f'Job started at {start_time} Error: {e}{hyperparameter_info}')
+        send_to_discord_webhook(f'Job `{cmdline}` Error: {e}')
         logger.exception(e)
         exit(1)
 
