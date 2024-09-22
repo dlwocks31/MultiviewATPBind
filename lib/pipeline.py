@@ -174,6 +174,7 @@ class Pipeline:
                  valid_fold_num=0,
                  dataset_kwargs={},
                  num_mlp_layer=2,
+                 pos_weight_factor=None,
                  ):
         print(f'init pipeline, model: {model}, dataset: {dataset}, gpus: {gpus}')
         self.gpus = gpus
@@ -184,19 +185,23 @@ class Pipeline:
 
         self.load_model(model, **model_kwargs)
 
-        if dataset_kwargs['max_slice_length'] and dataset_kwargs['padding'] and dataset_kwargs['to_slice']:
-            self.max_slice_length = dataset_kwargs['max_slice_length']
-            self.padding = dataset_kwargs['padding']
-            print(f'get dataset with kwargs: {dataset_kwargs}')                  
-        else:
-            raise ValueError('Are you sure?')
+        assert(dataset_kwargs['max_slice_length'] and dataset_kwargs['padding'] and dataset_kwargs['to_slice'])
+        self.max_slice_length = dataset_kwargs['max_slice_length']
+        self.padding = dataset_kwargs['padding']
+        print(f'get dataset with kwargs: {dataset_kwargs}')
+        
         self.dataset = get_dataset(
             dataset, 
             **dataset_kwargs, 
             load_gvp=task_kwargs.get('node_feature_type', None) == 'gvp_data',
         )
         self.valid_fold_num = valid_fold_num
-        self.train_set, self.valid_set, self.test_set = self.dataset.initialize_mask_and_weights().split(valid_fold_num=valid_fold_num)
+        dataset_splitted = self.dataset.initialize_mask_and_weights(
+            pos_weight_factor=pos_weight_factor
+        ).split(
+            valid_fold_num=valid_fold_num
+        )
+        self.train_set, self.valid_set, self.test_set = dataset_splitted
         print("train samples: %d, valid samples: %d, test samples: %d" %
               (len(self.train_set), len(self.valid_set), len(self.test_set)))
 
@@ -356,7 +361,12 @@ class Pipeline:
         from statistics import mean
         meter = self.solver.meter
         index = slice(meter.epoch2batch[-2], meter.epoch2batch[-1])
-        bce_records = meter.records['binary cross entropy'][index]
+        if 'binary cross entropy' in meter.records:
+            bce_records = meter.records['binary cross entropy'][index]
+        elif 'focal loss' in meter.records:
+            bce_records = meter.records['focal loss'][index]
+        else:
+            raise ValueError(f'Unknown metric: {meter.records}')
         return mean(bce_records)
 
 
@@ -370,7 +380,7 @@ class Pipeline:
 
         preds = []
         targets = []
-        thresholds = np.linspace(-3, 1, num=41)
+        thresholds = np.linspace(-5, 3, num=41)
         mcc_values = [0 for i in range(len(thresholds))]
         self.task.eval()
         metrics = []
@@ -381,7 +391,12 @@ class Pipeline:
                 pred, target, loss, metric = self.task.predict_and_target_with_metric(batch)
                 preds.append(pred)
                 targets.append(target)
-                metrics.append(metric['binary cross entropy'].item())
+                if 'binary cross entropy' in metric:
+                    metrics.append(metric['binary cross entropy'].item())
+                elif 'focal loss' in metric:
+                    metrics.append(metric['focal loss'].item())
+                else:
+                    raise ValueError(f'Unknown metric: {metric}')
 
         pred = utils.cat(preds)
         target = utils.cat(targets)

@@ -18,19 +18,22 @@ class NodePropertyPrediction(tasks.Task, core.Configurable):
                  normalization=True, num_class=None, verbose=0,
                  graph_construction_model=None,
                  threshold=-1.5, node_feature_type="graph_node_feature",
+                 focal_loss_gamma=2.0, focal_loss_alpha=0.25,
                  ):
         super(NodePropertyPrediction, self).__init__()
         self.model = model
         self.criterion = criterion
         self.metric = metric
         # For classification tasks, we disable normalization tricks.
-        self.normalization = normalization and ("ce" not in criterion) and ("bce" not in criterion)
+        self.normalization = normalization and ("ce" not in criterion) and ("bce" not in criterion) and ("focal" not in criterion)
         self.num_mlp_layer = num_mlp_layer
         self.num_class = num_class
         self.verbose = verbose
         self.graph_construction_model = graph_construction_model
         self.threshold = threshold
         self.node_feature_type = node_feature_type
+        self.focal_loss_gamma = focal_loss_gamma
+        self.focal_loss_alpha = focal_loss_alpha
 
     def preprocess(self, train_set, valid_set, test_set):
         """
@@ -42,7 +45,8 @@ class NodePropertyPrediction(tasks.Task, core.Configurable):
         std = values.float().std()
         if values.dtype == torch.long:
             num_class = values.max().item()
-            if num_class > 1 or "bce" not in self.criterion:
+            print(f'initial num_class: {num_class}')
+            if num_class > 1 or ("bce" not in self.criterion and "focal" not in self.criterion):
                 num_class += 1
         else:
             num_class = 1
@@ -130,6 +134,15 @@ class NodePropertyPrediction(tasks.Task, core.Configurable):
                 loss = F.binary_cross_entropy_with_logits(pred, target["label"].float(), weight=target["weight"], reduction="none")
             elif criterion == "ce":
                 loss = F.cross_entropy(pred, target["label"], reduction="none")
+            elif criterion == "focal":
+                gamma = self.focal_loss_gamma
+                alpha = self.focal_loss_alpha
+                
+                BCE_loss = F.binary_cross_entropy_with_logits(pred, target["label"].float(), reduction="none")
+                pt = torch.exp(-BCE_loss)
+                focal_loss = alpha * (1-pt)**gamma * BCE_loss
+                
+                loss = focal_loss
             else:
                 raise ValueError("Unknown criterion `%s`" % criterion)
             loss = functional.masked_mean(loss, labeled, dim=0)

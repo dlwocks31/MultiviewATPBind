@@ -77,6 +77,7 @@ class ATPBindTestEsm(data.ProteinDataset):
 
 class ATPBind3D(data.ProteinDataset):
     splits = ["train", "valid", "test"]
+    CUSTOM_DATASET_TYPES = ['imatinib', 'dasatinib', 'bosutinib']
 
     fold_count = 5
     
@@ -123,20 +124,7 @@ class ATPBind3D(data.ProteinDataset):
                     protein.residue_feature = protein.residue_feature.to_sparse()
             self.data.append(protein)
             self.pdb_files.append(pdb_file)
-            self.sequences.append(protein.to_sequence() if protein else None)
-    
-    def get_data_path(self, trainset):
-        if trainset == 'atp-388':
-            joined_path = os.path.join(os.path.dirname(__file__), '../data/atp')
-            data_path = os.path.normpath(joined_path)
-        elif trainset == 'atp-1930':
-            joined_path = os.path.join(os.path.dirname(__file__), '../data/atp-1930-esm')
-            data_path = os.path.normpath(joined_path)
-        else:
-            raise ValueError(f'Unknown trainset: {trainset}')
-        return data_path
-        
-        
+            self.sequences.append(protein.to_sequence() if protein else None)      
     
     def __init__(self, path=None, train_set='atp-388', limit=-1, to_slice=False, max_slice_length=500, padding=50, transform=None, load_gvp=True):
         if train_set == 'atp-388':
@@ -151,12 +139,18 @@ class ATPBind3D(data.ProteinDataset):
                 os.path.dirname(__file__), '../data/atp'))
 
             targets, pdb_files = self.get_seq_target_1930(train_path, test_path, limit)
+        elif train_set in CUSTOM_DATASET_TYPES:
+            data_path = os.path.normpath(os.path.join(os.path.dirname(__file__), f'../data/{train_set}'))
+            targets, pdb_files = self.get_seq_target_custombind(data_path, limit)
+        else:
+            raise NotImplementedError
 
         logger.info(f'ATPBind3D: start loading {len(pdb_files)} pdbs')
         self.load_pdbs(pdb_files, transform=transform, atom_feature=None)
         self.targets = defaultdict(list)
         self.targets["binding"] = targets["binding"]
-
+        
+        logger.info(f'ATPBind3D: validating loaded proteins and targets')
         assert (len(self.data) == len(self.targets["binding"]))
         for protein, binding in zip(self.data, self.targets["binding"]):
             if protein.num_residue != len(binding):
@@ -200,7 +194,7 @@ class ATPBind3D(data.ProteinDataset):
             logger.info('ATPBind3D: skipped loading gvp data')
 
 
-    def initialize_mask_and_weights(self, masks=None, weights=None):
+    def initialize_mask_and_weights(self, masks=None, weights=None, pos_weight_factor=None):
         if masks is not None:
             print('Initialize Undersampling: fixed mask')
             self.masks = masks
@@ -220,6 +214,12 @@ class ATPBind3D(data.ProteinDataset):
                 torch.ones(len(target)).float()
                 for target in self.targets["binding"]
             ]
+            if pos_weight_factor is not None:
+                logger.info(f'ATPBind3D: pos_weight_factor {pos_weight_factor}')
+                for i in range(len(self.weights)):
+                    for j in range(len(self.weights[i])):
+                        if self.targets["binding"][i][j]:
+                            self.weights[i][j] *= pos_weight_factor
         return self
 
     def get_seq_target_1930(self, train_path, test_path, limit=-1):
@@ -297,6 +297,17 @@ class ATPBind3D(data.ProteinDataset):
                 raise NotImplementedError
             
         return {"binding": targets}, pdb_files
+    
+    def get_seq_target_custombind(self, path, limit=None):
+        '''
+        Limit is not used for custombind dataset
+        '''
+        sequences, targets, pdb_ids = [], [], []
+        num_samples, sequences, targets, pdb_ids = read_file(os.path.join(path, f'{self.dataset_type}_binding.txt'))
+        self.train_sample_count = int(num_samples * 0.8)
+        self.test_sample_count = num_samples - self.train_sample_count
+        
+        return sequences, {"binding": targets}, pdb_ids
 
 
     def _is_train_set(self, index):
@@ -389,8 +400,7 @@ class CustomBindDataset(data.ProteinDataset):
                 new_targets += sliced_targets
             
             self.data = new_data + self.data[self.train_sample_count:]
-            self.targets["binding"] = new_targets + \
-                self.targets["binding"][self.train_sample_count:]
+            self.targets["binding"] = new_targets + self.targets["binding"][self.train_sample_count:]
             self.train_sample_count = len(new_data)            
         
         self.fold_ranges = np.array_split(np.arange(self.train_sample_count), self.fold_count)
@@ -399,7 +409,7 @@ class CustomBindDataset(data.ProteinDataset):
             if protein.num_residue != len(binding):
                 print(f'ERROR: protein: {protein.num_residue}, binding: {len(binding)}')
         
-    def initialize_mask_and_weights(self, masks=None, weights=None):
+    def initialize_mask_and_weights(self, masks=None, weights=None, pos_weight_factor=None):
         if masks is not None:
             print('Initialize Undersampling: fixed mask')
             self.masks = masks
@@ -419,6 +429,7 @@ class CustomBindDataset(data.ProteinDataset):
                 torch.ones(len(target)).float()
                 for target in self.targets["binding"]
             ]
+
         return self
         
 
@@ -575,13 +586,19 @@ def get_slices(total_length, max_slice_length, padding):
     return slices
 
 
-def protein_to_slices(protein, targets, max_slice_length, padding):
+def protein_to_slices(protein, targets, max_slice_length, padding, verbose=False):
     '''
     Slice a protein-target pair into consecutive slices.
     '''
     slices = get_slices(protein.num_residue, max_slice_length, padding)
     sliced_proteins = []
     sliced_targets = []
+    if verbose:
+        if len(slices) >= 2:
+            print(f'protein_to_slices: slicing {protein.num_residue} into {len(slices)} slices. Config is {slices}')
+        else:
+            print(f'protein_to_slices: no slicing for {protein.num_residue}')
+    
     for start, end in slices:
         masks = [True if start <= i < end else False for i in range(protein.num_residue)]
         sliced_proteins.append(protein.subresidue(masks))

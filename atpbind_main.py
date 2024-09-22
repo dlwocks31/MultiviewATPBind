@@ -188,9 +188,16 @@ ALL_PARAMS = {
         'max_slice_length': 500,
         'padding': 50,
         'hyperparameters': {
-            'model_kwargs.lm_freeze_layer_count': [27, 28, 29, 30, 31, 32, 33],
-            'max_slice_length': [300, 400, 500, 600, 700],
-            'padding': [25, 50, 75, 100],
+            # 'model_kwargs.lm_freeze_layer_count': [27, 28, 29, 30, 31, 32, 33],
+            # 'max_slice_length': [300, 400, 500, 600, 700],
+            # 'padding': [25, 50, 75, 100],
+            # 'pos_weight_factor': [16, 4, 1, 0.25],
+            'task_kwargs.criterion': [
+                'focal', 
+                # 'bce'
+            ],
+            'task_kwargs.focal_loss_gamma': [2, 1, 3],
+            'task_kwargs.focal_loss_alpha': [0.25, 0.2, 0.3],
         }
     },
     'esm-t33-gearnet-pretrained': {
@@ -269,6 +276,7 @@ def single_run(
     max_lr=3e-3,
     task_kwargs={},
     pretrained_weight_path=None,
+    pos_weight_factor=None,
 ):
     logger.info(f'single_run: dataset={dataset}, model={model}, model_kwargs={model_kwargs}, max_slice_length={max_slice_length}, padding={padding}, batch_size={batch_size}, gradient_interval={gradient_interval}')
     batch_size, gradient_interval = get_batch_size_and_gradient_interval(dataset, batch_size, gradient_interval, max_slice_length)
@@ -299,6 +307,7 @@ def single_run(
             'padding': padding,
         },
         task_kwargs=task_kwargs,
+        pos_weight_factor=pos_weight_factor,
     )
     
     if pretrained_weight_path is not None:
@@ -458,6 +467,9 @@ def check_if_run_exists(result_file, model_key, valid_fold, hp_combination):
     for key, value in hp_combination.items():
         if key in df.columns:
             df = df[df[key] == value]
+        else:
+            logger.warning(f'check_if_run_exists: key={key} not found in df.columns={df.columns}')
+            return False
     
     return len(df) > 0
 
@@ -635,7 +647,7 @@ if __name__ == '__main__':
     # Read the command line used to start the current process
     with open("/proc/self/cmdline", "r") as f:
         cmdline = f.read().replace('\0', ' ').strip()
-    send_to_discord_webhook(f'Started job at {start_time}. Command: `{cmdline}`')
+    send_to_discord_webhook(f'Started job at {start_time}.\nCommand: `{cmdline}`\nHyperparameters in model: {ALL_PARAMS[model_keys[0]]["hyperparameters"]}')
     try:
         for dataset in args.dataset:
             for model_key in model_keys:
