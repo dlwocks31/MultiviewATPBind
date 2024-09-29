@@ -1,0 +1,3 @@
+model_key,valid_fold,mcc,micro_auprc,sensitivity,precision,micro_auroc,valid_mcc,best_threshold,ensemble_count,last_run_mcc,last_run_auprc,finished_at
+esm-t33-gearnet-pretrained-resiboost,0,0.6085,0.5733,0.4143,0.9355,0.8052,0.725,0.5,0,0.6084554863617365,0.5732574462890625,2024-09-29 19:19:35
+esm-t33-gearnet-pretrained-resiboost,0,0.5725,0.5766,0.3571,0.9615,0.802,0.7274,0.8,1,0.3482979474743286,0.38569310307502747,2024-09-29 19:19:52

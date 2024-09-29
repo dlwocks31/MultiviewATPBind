@@ -141,7 +141,7 @@ class ATPBind3D(data.ProteinDataset):
             targets, pdb_files = self.get_seq_target_1930(train_path, test_path, limit)
         elif train_set in CUSTOM_DATASET_TYPES:
             data_path = os.path.normpath(os.path.join(os.path.dirname(__file__), f'../data/{train_set}'))
-            targets, pdb_files = self.get_seq_target_custombind(data_path, limit)
+            targets, pdb_files = self.get_seq_target(data_path, limit)
         else:
             raise NotImplementedError
 

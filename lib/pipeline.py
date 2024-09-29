@@ -68,7 +68,14 @@ def get_dataset(dataset, to_slice=True, max_slice_length=550, padding=100, load_
         protein_view_transform = transforms.ProteinView(view='residue')
         transform = transforms.Compose([protein_view_transform])
 
-        return CustomBindDataset(transform=transform, dataset_type=dataset, to_slice=to_slice, max_slice_length=max_slice_length, padding=padding)
+        return ATPBind3D(
+            transform=transform,
+            train_set=dataset,
+            to_slice=to_slice,
+            max_slice_length=max_slice_length, 
+            padding=padding,
+            load_gvp=load_gvp,
+        )
     else:
         raise ValueError('Dataset is not supported')
 

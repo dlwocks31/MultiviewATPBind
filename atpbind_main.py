@@ -85,13 +85,7 @@ def make_rus_preprocess_fn(use_ratio, mask_positive=True):
         return rus_preprocess
     return make_rus_preprocess_traintime_fn
 
-def load_pretrained_fn(path):
-    def load_pretrained(pipeline):
-        load_path = get_data_path(path)
-        logger.info(f'Loading weight from {load_path}')
-        pipeline.task.load_state_dict(torch.load(load_path), strict=False)
-        logger.info('Done loading weight')
-    return load_pretrained
+
 
 DEBUG = False
 WRITE_DF = False
@@ -123,13 +117,34 @@ ALL_PARAMS = {
             'freeze_layer_count': 30,  
         },
     },
+    'esm-t33-lowlr': {
+        'model': 'esm-t33',
+        'model_kwargs': {
+            'freeze_esm': False,
+            'freeze_layer_count': 30,
+        },
+        'base_lr': 3e-4,
+        'max_lr': 3e-4,
+        'cycle_size': 10,
+    },
     'esm-t33-pretrained': {
         'model': 'esm-t33',
         'model_kwargs': {
             'freeze_esm': False,
             'freeze_layer_count': 30,
         },
-        'pipeline_before_train_fn': load_pretrained_fn('weight/atpbind3d_esm-t33_1.pt'),
+        'pretrained_weight_path': 'weight/atpbind3d-1930_esm-t33_1.pt',
+        'hyperparameters': {
+            # 'base_lr': [1e-4, 3e-4],
+            # 'max_lr': [3e-3, 5e-3, 7e-3, 1e-2],
+            # 'cycle_size': [4, 6, 10],
+            # 'model_kwargs.freeze_layer_count': [30, 31, 32],
+            'base_lr': [3e-4],
+            'max_lr': [3e-3],
+            'cycle_size': [3, 4, 6, 10],
+            'model_kwargs.freeze_layer_count': [30],
+            'pretrained_weight_path': ['weight/atpbind3d-1930_esm-t33_1.pt', 'weight/atpbind3d_esm-t33_1.pt', 'weight/atpbind3d-1930_esm-t33_1_rmmlp.pt', 'empty'],
+        }
     },
     'bert': {
         'model': 'bert',
@@ -188,17 +203,29 @@ ALL_PARAMS = {
         'max_slice_length': 500,
         'padding': 50,
         'hyperparameters': {
-            # 'model_kwargs.lm_freeze_layer_count': [27, 28, 29, 30, 31, 32, 33],
-            # 'max_slice_length': [300, 400, 500, 600, 700],
-            # 'padding': [25, 50, 75, 100],
-            # 'pos_weight_factor': [16, 4, 1, 0.25],
+            'model_kwargs.lm_freeze_layer_count': [27, 28, 29, 30, 31, 32, 33],
+            'max_slice_length': [300, 400, 500, 600, 700],
+            'padding': [25, 50, 75, 100],
+            'pos_weight_factor': [16, 4, 1, 0.25],
             'task_kwargs.criterion': [
                 'focal', 
-                # 'bce'
+                'bce'
             ],
             'task_kwargs.focal_loss_gamma': [2, 1, 3],
             'task_kwargs.focal_loss_alpha': [0.25, 0.2, 0.3],
         }
+    },
+    'esm-t33-gearnet-lowlr': {
+        'model': 'lm-gearnet',
+        'model_kwargs': {
+            'lm_type': 'esm-t33',
+            'gearnet_hidden_dim_size': 512,
+            'gearnet_hidden_dim_count': 4,
+            'lm_freeze_layer_count': 30,
+        },
+        'base_lr': 3e-4,
+        'max_lr': 3e-4,
+        'cycle_size': 10,
     },
     'esm-t33-gearnet-pretrained': {
         'model': 'lm-gearnet',
@@ -208,14 +235,33 @@ ALL_PARAMS = {
             'gearnet_hidden_dim_count': 4,
             'lm_freeze_layer_count': 30,
         },
+        'base_lr': 3e-4,
+        'max_lr': 3e-3,
+        'cycle_size': 6,
         'pretrained_weight_path': 'weight/atpbind3d_esm-t33-gearnet_1.pt',
+        'hyperparameters': {
+            # 'base_lr': [1e-4, 3e-4],
+            # 'max_lr': [5e-3, 7e-3, 1e-2],
+            'base_lr': [3e-4],
+            'max_lr': [3e-3],
+            'cycle_size': [2, 3, 4, 6, 10],
+            'model_kwargs.lm_freeze_layer_count': [30],
+            'pretrained_weight_path': ['weight/atpbind3d-1930_esm-t33-gearnet_1.pt', 'weight/atpbind3d-1930_esm-t33-gearnet_1_rmmlp.pt', 'weight/atpbind3d_esm-t33-gearnet_1.pt', 'empty'],
+        }
     },
     'esm-t33-gearnet-resiboost': {
-        'model': 'lm-gearnet',
         'ensemble_count': 10,
         'model_ref': 'esm-t33-gearnet',
         'hyperparameters': {
-            'boost_negative_use_ratio': [0.1, 0.2, 0.5, 0.9],
+            'boost_negative_use_ratio': [0.1, 0.2, 0.3, 0.5, 0.9],
+            'boost_mask_positive': [False, True],
+        }
+    },
+    'esm-t33-gearnet-pretrained-resiboost': {
+        'ensemble_count': 5,
+        'model_ref': 'esm-t33-gearnet-pretrained',
+        'hyperparameters': {
+            'boost_negative_use_ratio': [0.1, 0.2, 0.3, 0.5, 0.9],
             'boost_mask_positive': [False, True],
         }
     },
@@ -298,7 +344,7 @@ def single_run(
             'base_lr': base_lr,
             'max_lr': max_lr,
             'step_size_up': cycle_size // 2,
-            'step_size_down': cycle_size // 2,
+            'step_size_down': cycle_size // 2 + (0 if cycle_size % 2 == 0 else 1),
             'cycle_momentum': False
         },
         dataset_kwargs={
@@ -310,10 +356,10 @@ def single_run(
         pos_weight_factor=pos_weight_factor,
     )
     
-    if pretrained_weight_path is not None:
+    if pretrained_weight_path and pretrained_weight_path != 'empty':
         load_path = get_data_path(pretrained_weight_path)
         logger.info(f'Loading weight from {load_path}')
-        pipeline.task.load_state_dict(torch.load(load_path), strict=False)
+        pipeline.task.load_state_dict(torch.load(load_path, map_location=f'cuda:{gpu}'), strict=False)
         logger.info('Done loading weight')
     
     if pipeline_before_train_fn is not None: # mainly, for resiboost_preprocess passed from ensemble_run
@@ -361,6 +407,7 @@ def ensemble_run(
     original_model_key=None,
     boost_negative_use_ratio=None,
     boost_mask_positive=False,
+    hp_combination={},
 ):
     df_trains = []
     df_valids = []
@@ -409,6 +456,20 @@ def ensemble_run(
             df_valid=df_valid, df_test=df_test, start=start, end=end, step=step
         )
         logger.info(f'me_metric: {me_metric}')
+        
+        result_file = get_data_path(f'result/{dataset}_{original_model_key}_{valid_fold_num}_ensemblelog.csv')
+        write_result(
+            model_key=original_model_key,
+            valid_fold=valid_fold_num,
+            result_dict={'record': me_metric},
+            additional_record={
+                **hp_combination,
+                'ensemble_count': i+1,
+                'last_single_run_mcc': round(res['record']['mcc'], 4),
+                'last_single_run_auprc': round(res['record']['micro_auprc'], 4),
+            },
+            result_file=result_file,
+        )
 
     
     if WRITE_DF:
@@ -433,18 +494,8 @@ def parse_hyperparameters(hp_string):
     result = {}
     for item in hp_string.split(','):
         key, values = item.split('=')
-        model, param = key.split(':')
         values = [v.strip() for v in values.split('|')]
-        
-        # Convert to appropriate types
-        try:
-            values = [ast.literal_eval(v) for v in values]
-        except:
-            pass  # Keep as strings if conversion fails
-        
-        if model not in result:
-            result[model] = {}
-        result[model][param] = values
+        result[key] = values
     
     return result
 
@@ -473,7 +524,7 @@ def check_if_run_exists(result_file, model_key, valid_fold, hp_combination):
     
     return len(df) > 0
 
-def main_single_run(dataset, model_key, valid_folds, save_weight=False):
+def main_single_run(dataset, model_key, valid_folds, save_weight=False, allow_rerun=False):
     model = ALL_PARAMS[model_key]
     hyperparameters = model.get('hyperparameters', {})
     if hyperparameters:
@@ -487,7 +538,7 @@ def main_single_run(dataset, model_key, valid_folds, save_weight=False):
 
     for i, hp_combination in enumerate(combinations):
         for valid_fold in valid_folds:
-            if check_if_run_exists(result_file, model_key, valid_fold, hp_combination):
+            if check_if_run_exists(result_file, model_key, valid_fold, hp_combination) and not allow_rerun:
                 logger.info(f'Skipping model_key={model_key}, fold={valid_fold}, hp_combination={hp_combination} as it has already been run.')
                 continue
 
@@ -514,7 +565,7 @@ def main_single_run(dataset, model_key, valid_folds, save_weight=False):
                 result_file=result_file
             )
 
-def main_ensemble_run(dataset, model_key, valid_folds, save_weight=False):
+def main_ensemble_run(dataset, model_key, valid_folds, save_weight=False, allow_rerun=False):
     model = ALL_PARAMS[model_key]
     ensemble_count = model['ensemble_count']
     model_ref = model['model_ref']
@@ -530,7 +581,7 @@ def main_ensemble_run(dataset, model_key, valid_folds, save_weight=False):
 
     for i, hp_combination in enumerate(combinations):
         for valid_fold in valid_folds:
-            if check_if_run_exists(result_file, model_key, valid_fold, hp_combination):
+            if check_if_run_exists(result_file, model_key, valid_fold, hp_combination) and not allow_rerun:
                 logger.info(f'Skipping ensemble of model_key={model_key}, valid_fold={valid_fold}, hp_combination={hp_combination} as it has already been run.')
                 continue
 
@@ -553,11 +604,11 @@ def main_ensemble_run(dataset, model_key, valid_folds, save_weight=False):
                 result_file=result_file
             )
 
-def main(dataset, model_key, valid_folds, save_weight=False):
+def main(dataset, model_key, valid_folds, save_weight=False, allow_rerun=False):
     if 'ensemble_count' not in ALL_PARAMS[model_key]: # single run model
-        main_single_run(dataset, model_key, valid_folds, save_weight)
+        main_single_run(dataset, model_key, valid_folds, save_weight, allow_rerun)
     else:
-        main_ensemble_run(dataset, model_key, valid_folds, save_weight)
+        main_ensemble_run(dataset, model_key, valid_folds, save_weight, allow_rerun)
 
 
 def write_result(model_key, 
@@ -609,6 +660,7 @@ if __name__ == '__main__':
     parser.add_argument('--hyperparameters', type=str, default=None, 
                         help='Hyperparameters to override or add. '
                              'Format: model:param=value1|value2,model:param2=value3|value4')
+    parser.add_argument('--allow_rerun', action='store_true', help='Allow re-running experiments')
 
     args = parser.parse_args()
     GPU = args.gpu
@@ -628,26 +680,21 @@ if __name__ == '__main__':
     start_time = datetime.datetime.now()
 
     
-    
-    
-    if args.hyperparameters:
-        if args.hyperparameters == 'none':
-            for model_key in ALL_PARAMS:
-                if 'hyperparameters' not in ALL_PARAMS[model_key]:
-                    ALL_PARAMS[model_key]['hyperparameters'] = {}
-        else:
-            custom_hyperparameters = parse_hyperparameters(args.hyperparameters)
-            for model_key, params in custom_hyperparameters.items():
-                if model_key in ALL_PARAMS:
-                    ALL_PARAMS[model_key].setdefault('hyperparameters', {})
-                    ALL_PARAMS[model_key]['hyperparameters'].update(params)
-                    logger.info(f"Updated hyperparameters for {model_key}")
-                else:
-                    logger.warning(f"Model key '{model_key}' not found in ALL_PARAMS. Skipping.")
+    # Disable hyperparameter adjustment through command line..
+    # if custom hyperparameters are provided, update ALL_PARAMS
+    # custom_hyperparameters = parse_hyperparameters(args.hyperparameters)
+    # for model_key in ALL_PARAMS:
+    #     ALL_PARAMS[model_key].setdefault('hyperparameters', {})
+    #     new_hp = ALL_PARAMS[model_key]['hyperparameters'].copy()
+    #     for param in ALL_PARAMS[model_key]['hyperparameters']:
+    #         if param in custom_hyperparameters.get(model_key, []):
+    #             new_hp[param] = ALL_PARAMS[model_key]['hyperparameters'][param]
+    #     ALL_PARAMS[model_key]['hyperparameters'] = new_hp
+
     # Read the command line used to start the current process
     with open("/proc/self/cmdline", "r") as f:
         cmdline = f.read().replace('\0', ' ').strip()
-    send_to_discord_webhook(f'Started job at {start_time}.\nCommand: `{cmdline}`\nHyperparameters in model: {ALL_PARAMS[model_keys[0]]["hyperparameters"]}')
+    send_to_discord_webhook(f'Started job at: `{start_time}`.\n- Command: `{cmdline}`\n- Hyperparameters in model: `{[ALL_PARAMS[model_keys[i]].get("hyperparameters", {}) for i in range(len(model_keys))]}`')
     try:
         for dataset in args.dataset:
             for model_key in model_keys:
@@ -658,14 +705,18 @@ if __name__ == '__main__':
                         main(
                             dataset=dataset, model_key=model_key, valid_folds=[valid_fold],
                             save_weight=args.save_weight,
+                            allow_rerun=args.allow_rerun,
                         )
-        send_to_discord_webhook(f'Finished job `{cmdline}` started at {start_time}')
+        send_to_discord_webhook(
+            f'Finished job started at `{start_time}`: `{cmdline}`')
     except KeyboardInterrupt:
-        send_to_discord_webhook(f'You requested to stop the job `{cmdline}` started at {start_time}')
+        send_to_discord_webhook(
+            f'Interrupted job started at `{start_time}`: `{cmdline}`')
         logger.info('Received KeyboardInterrupt. Exit.')
         exit(0)
     except Exception as e:
-        send_to_discord_webhook(f'Job `{cmdline}` Error: {e}')
+        send_to_discord_webhook(
+            f'Error in job started at `{start_time}`: `{cmdline}`\n- Error: {e}')
         logger.exception(e)
         exit(1)
 
