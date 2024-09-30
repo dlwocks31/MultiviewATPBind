@@ -92,6 +92,25 @@ WRITE_DF = False
 
 CYCLE_SIZE = 10
 
+low_lr_esmt33_default = {
+    'model': 'esm-t33',
+    'model_kwargs': {
+        'freeze_esm': False,
+        'freeze_layer_count': 30,
+    },
+    'cycle_size': 10,
+}
+
+low_lr_esmgn_default = {
+    'model': 'lm-gearnet',
+    'model_kwargs': {
+        'lm_type': 'esm-t33',
+        'gearnet_hidden_dim_size': 512,
+        'gearnet_hidden_dim_count': 4,
+        'lm_freeze_layer_count': 30,
+    },
+    'cycle_size': 10,
+}
 
 ALL_PARAMS = {
     'gvp': {
@@ -117,15 +136,30 @@ ALL_PARAMS = {
             'freeze_layer_count': 30,  
         },
     },
-    'esm-t33-lowlr': {
-        'model': 'esm-t33',
-        'model_kwargs': {
-            'freeze_esm': False,
-            'freeze_layer_count': 30,
-        },
+    'esm-t33-lr3e-4': {
+        **low_lr_esmt33_default,
         'base_lr': 3e-4,
         'max_lr': 3e-4,
-        'cycle_size': 10,
+    },
+    'esm-t33-lr1e-4': {
+        **low_lr_esmt33_default,
+        'base_lr': 1e-4,
+        'max_lr': 1e-4,
+    },
+    'esm-t33-lr3e-5': {
+        **low_lr_esmt33_default,
+        'base_lr': 3e-5,
+        'max_lr': 3e-5,
+    },
+    'esm-t33-lr1e-5': {
+        **low_lr_esmt33_default,
+        'base_lr': 1e-5,
+        'max_lr': 1e-5,
+    },
+    'esm-t33-lr3e-6': {
+        **low_lr_esmt33_default,
+        'base_lr': 3e-6,
+        'max_lr': 3e-6,
     },
     'esm-t33-pretrained': {
         'model': 'esm-t33',
@@ -143,7 +177,18 @@ ALL_PARAMS = {
             'max_lr': [3e-3],
             'cycle_size': [3, 4, 6, 10],
             'model_kwargs.freeze_layer_count': [30],
-            'pretrained_weight_path': ['weight/atpbind3d-1930_esm-t33_1.pt', 'weight/atpbind3d_esm-t33_1.pt', 'weight/atpbind3d-1930_esm-t33_1_rmmlp.pt', 'empty'],
+            'pretrained_weight_path': [
+                'weight/atpbind3d-1930_esm-t33_1.pt', 
+                'weight/atpbind3d_esm-t33_1.pt', 
+                'weight/atpbind3d-1930_esm-t33_1_rmmlp.pt', 
+                'weight/atpbind3d-1930_esm-t33-lowlr_0.pt',
+                'weight/atpbind3d-1930_esm-t33-lr3e-4_0.pt',
+                'weight/atpbind3d-1930_esm-t33-lr1e-4_0.pt',
+                'weight/atpbind3d-1930_esm-t33-lr3e-5_0.pt',
+                'weight/atpbind3d-1930_esm-t33-lr1e-5_0.pt',
+                'weight/atpbind3d-1930_esm-t33-lr3e-6_0.pt',
+                'empty'
+            ],
         }
     },
     'bert': {
@@ -215,17 +260,30 @@ ALL_PARAMS = {
             'task_kwargs.focal_loss_alpha': [0.25, 0.2, 0.3],
         }
     },
-    'esm-t33-gearnet-lowlr': {
-        'model': 'lm-gearnet',
-        'model_kwargs': {
-            'lm_type': 'esm-t33',
-            'gearnet_hidden_dim_size': 512,
-            'gearnet_hidden_dim_count': 4,
-            'lm_freeze_layer_count': 30,
-        },
+    'esm-t33-gearnet-lr3e-4': {
+        **low_lr_esmgn_default,
         'base_lr': 3e-4,
         'max_lr': 3e-4,
-        'cycle_size': 10,
+    },
+    'esm-t33-gearnet-lr1e-4': {
+        **low_lr_esmgn_default,
+        'base_lr': 1e-4,
+        'max_lr': 1e-4,
+    },
+    'esm-t33-gearnet-lr3e-5': {
+        **low_lr_esmgn_default,
+        'base_lr': 3e-5,
+        'max_lr': 3e-5,
+    },
+    'esm-t33-gearnet-lr1e-5': {
+        **low_lr_esmgn_default,
+        'base_lr': 1e-5,
+        'max_lr': 1e-5,
+    },
+    'esm-t33-gearnet-lr3e-6': {
+        **low_lr_esmgn_default,
+        'base_lr': 3e-6,
+        'max_lr': 3e-6,
     },
     'esm-t33-gearnet-pretrained': {
         'model': 'lm-gearnet',
@@ -246,7 +304,17 @@ ALL_PARAMS = {
             'max_lr': [3e-3],
             'cycle_size': [2, 3, 4, 6, 10],
             'model_kwargs.lm_freeze_layer_count': [30],
-            'pretrained_weight_path': ['weight/atpbind3d-1930_esm-t33-gearnet_1.pt', 'weight/atpbind3d-1930_esm-t33-gearnet_1_rmmlp.pt', 'weight/atpbind3d_esm-t33-gearnet_1.pt', 'empty'],
+            'pretrained_weight_path': [
+                'weight/atpbind3d-1930_esm-t33-gearnet_1.pt', 
+                'weight/atpbind3d-1930_esm-t33-gearnet_1_rmmlp.pt', 
+                'weight/atpbind3d_esm-t33-gearnet_1.pt',
+                'weight/atpbind3d-1930_esm-t33-gearnet-lowlr_0.pt',
+                'weight/atpbind3d-1930_esm-t33-gearnet-lr3e-4_0.pt',
+                'weight/atpbind3d-1930_esm-t33-gearnet-lr1e-4_0.pt',
+                'weight/atpbind3d-1930_esm-t33-gearnet-lr3e-5_0.pt',
+                'weight/atpbind3d-1930_esm-t33-gearnet-lr1e-5_0.pt',
+                'weight/atpbind3d-1930_esm-t33-gearnet-lr3e-6_0.pt',
+                'empty'],
         }
     },
     'esm-t33-gearnet-resiboost': {
@@ -647,6 +715,8 @@ def write_result(model_key,
     }
     new_record_df = pd.DataFrame([added_record])
     record_df = pd.concat([record_df, new_record_df], ignore_index=True)
+    output_folder = os.path.dirname(result_file)
+    os.makedirs(output_folder, exist_ok=True)
     record_df.to_csv(result_file, index=False)
 
 if __name__ == '__main__':
@@ -694,7 +764,7 @@ if __name__ == '__main__':
     # Read the command line used to start the current process
     with open("/proc/self/cmdline", "r") as f:
         cmdline = f.read().replace('\0', ' ').strip()
-    send_to_discord_webhook(f'Started job at: `{start_time}`.\n- Command: `{cmdline}`\n- Hyperparameters in model: `{[ALL_PARAMS[model_keys[i]].get("hyperparameters", {}) for i in range(len(model_keys))]}`')
+    send_to_discord_webhook(f'------------------\nStarted job at: `{start_time}`.\n- Command: `{cmdline}`\n- Hyperparameters in model: `{[ALL_PARAMS[model_keys[i]].get("hyperparameters", {}) for i in range(len(model_keys))]}`')
     try:
         for dataset in args.dataset:
             for model_key in model_keys:
