@@ -1,0 +1,2 @@
+model_key,valid_fold,mcc,micro_auprc,sensitivity,precision,micro_auroc,valid_mcc,best_threshold,hp_combination,finished_at
+esm-t33-gearnet-lr3e-4,0,0.7134,0.7398,0.632,0.8304,0.9438,0.8159,-0.6,0,2024-09-30 02:00:45

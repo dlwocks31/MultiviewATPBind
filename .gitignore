@@ -194,3 +194,4 @@ data/atp-1930-esm-raw
 
 *.fasta
 *.fasta.clstr
+*ensemblelog*

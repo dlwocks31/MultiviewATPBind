@@ -162,7 +162,7 @@ class Pipeline:
     possible_models = ['bert', 'gearnet', 'lm-gearnet',
                        'cnn', 'esm-t6', 'esm-t12', 'esm-t30', 'esm-t33', 'esm-t36', 'esm-t48',
                        'gvp', 'gvp-encoder',
-                       'esm-t33-gvp',
+                       'esm-t33-gvp', 'bert-gvp',
                        ]
     threshold = 0
 
@@ -301,6 +301,8 @@ class Pipeline:
                 self.model = GVPEncoderWrapModel(**model_kwargs)
             elif model == 'esm-t33-gvp':
                 self.model = LMGVPModel(lm_type='esm-t33', **model_kwargs)
+            elif model == 'bert-gvp':
+                self.model = LMGVPModel(lm_type='bert', **model_kwargs)
             elif isinstance(model, str) and model.startswith('esm'):
                 self.model = EsmWrapModel(model_type=model, **model_kwargs)
             # pre built model, eg LoraModel. I wonder wheter there is better way to check this

@@ -1,0 +1,2 @@
+model_key,valid_fold,mcc,micro_auprc,sensitivity,precision,micro_auroc,valid_mcc,best_threshold,hp_combination,finished_at
+esm-t33-gearnet-lowlr,0,0.7107,0.7363,0.6484,0.8048,0.939,0.8156,-0.2,0,2024-09-30 00:31:32

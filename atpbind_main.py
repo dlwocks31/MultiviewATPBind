@@ -128,6 +128,9 @@ ALL_PARAMS = {
             'node_feature_type': 'gvp_data',
         },
         'cycle_size': 50,
+        'hyperparameters': {
+            'cycle_size': [20, 50, 100],
+        }
     },
     'esm-t33': {
         'model': 'esm-t33',
@@ -175,15 +178,15 @@ ALL_PARAMS = {
             'cycle_size': [3, 4, 6, 10],
             'model_kwargs.freeze_layer_count': [30],
             'pretrained_weight_path': [
-                'weight/atpbind3d-1930_esm-t33_1.pt', 
-                'weight/atpbind3d_esm-t33_1.pt', 
-                'weight/atpbind3d-1930_esm-t33_1_rmmlp.pt', 
-                'weight/atpbind3d-1930_esm-t33-lowlr_0.pt',
-                'weight/atpbind3d-1930_esm-t33-lr3e-4_0.pt',
-                'weight/atpbind3d-1930_esm-t33-lr1e-4_0.pt',
-                'weight/atpbind3d-1930_esm-t33-lr3e-5_0.pt',
-                'weight/atpbind3d-1930_esm-t33-lr1e-5_0.pt',
-                'weight/atpbind3d-1930_esm-t33-lr3e-6_0.pt',
+                # 'weight/atpbind3d-1930_esm-t33_1.pt', 
+                # 'weight/atpbind3d_esm-t33_1.pt', 
+                # 'weight/atpbind3d-1930_esm-t33_1_rmmlp.pt', 
+                # 'weight/atpbind3d-1930_esm-t33-lowlr_0.pt',
+                # 'weight/atpbind3d-1930_esm-t33-lr3e-4_0.pt',
+                # 'weight/atpbind3d-1930_esm-t33-lr1e-4_0.pt',
+                # 'weight/atpbind3d-1930_esm-t33-lr3e-5_0.pt',
+                # 'weight/atpbind3d-1930_esm-t33-lr1e-5_0.pt',
+                # 'weight/atpbind3d-1930_esm-t33-lr3e-6_0.pt',
                 'empty'
             ],
         }
@@ -218,12 +221,24 @@ ALL_PARAMS = {
         },
         'task_kwargs': {'node_feature_type': 'gvp_data'},
         'hyperparameters': {
-            'max_lr': [1e-3, 2e-3],
-            'model_kwargs.lm_freeze_layer_count': [30, 31],
-            'model_kwargs.node_h_dim': [(256, 16), (512, 16)],
+            'model_kwargs.lm_freeze_layer_count': [30],
+            'model_kwargs.node_h_dim': [(256, 16)],
             'model_kwargs.num_layers': [3, 4],
             'model_kwargs.residual': [True, False],
             'cycle_size': [20, 10],
+            'max_lr': [2e-3],
+        }
+    },
+    'bert-gvp': {
+        'model': 'bert-gvp',
+        'model_kwargs': {
+            'lm_freeze_layer_count': 29,
+        },
+        'task_kwargs': {'node_feature_type': 'gvp_data'},
+        'cycle_size': 10,
+        'hyperparameters': {
+            'cycle_size': [40, 20, 10],
+            'max_lr': [3e-3, 1e-3],
         }
     },
     'esm-t33-ensemble': {
@@ -245,16 +260,19 @@ ALL_PARAMS = {
         'max_slice_length': 500,
         'padding': 50,
         'hyperparameters': {
-            'model_kwargs.lm_freeze_layer_count': [27, 28, 29, 30, 31, 32, 33],
-            'max_slice_length': [300, 400, 500, 600, 700],
-            'padding': [25, 50, 75, 100],
-            'pos_weight_factor': [16, 4, 1, 0.25],
-            'task_kwargs.criterion': [
-                'focal', 
-                'bce'
-            ],
-            'task_kwargs.focal_loss_gamma': [2, 1, 3],
-            'task_kwargs.focal_loss_alpha': [0.25, 0.2, 0.3],
+            # 'model_kwargs.lm_freeze_layer_count': [27, 28, 29, 30, 31, 32, 33],
+            'model_kwargs.lm_freeze_layer_count': [30],
+            'max_slice_length': [300, 400, 500, 600, 700, 800],
+            # 'max_slice_length': [500],
+            # 'padding': [25, 50, 75, 100],
+            'padding': [50],
+            # 'pos_weight_factor': [16, 4, 1, 0.25],
+            # 'task_kwargs.criterion': [
+            #     'focal', 
+            #     'bce'
+            # ],
+            # 'task_kwargs.focal_loss_gamma': [2, 1, 3],
+            # 'task_kwargs.focal_loss_alpha': [0.25, 0.2, 0.3],
         }
     },
     'esm-t33-gearnet-lr3e-4': {
@@ -302,10 +320,10 @@ ALL_PARAMS = {
             'cycle_size': [2, 3, 4, 6, 10],
             'model_kwargs.lm_freeze_layer_count': [30],
             'pretrained_weight_path': [
-                'weight/atpbind3d-1930_esm-t33-gearnet_1.pt', 
-                'weight/atpbind3d-1930_esm-t33-gearnet_1_rmmlp.pt', 
-                'weight/atpbind3d_esm-t33-gearnet_1.pt',
-                'weight/atpbind3d-1930_esm-t33-gearnet-lowlr_0.pt',
+                # 'weight/atpbind3d-1930_esm-t33-gearnet_1.pt', 
+                # 'weight/atpbind3d-1930_esm-t33-gearnet_1_rmmlp.pt', 
+                # 'weight/atpbind3d_esm-t33-gearnet_1.pt',
+                # 'weight/atpbind3d-1930_esm-t33-gearnet-lowlr_0.pt',
                 'weight/atpbind3d-1930_esm-t33-gearnet-lr3e-4_0.pt',
                 'weight/atpbind3d-1930_esm-t33-gearnet-lr1e-4_0.pt',
                 'weight/atpbind3d-1930_esm-t33-gearnet-lr3e-5_0.pt',
@@ -318,15 +336,18 @@ ALL_PARAMS = {
         'ensemble_count': 10,
         'model_ref': 'esm-t33-gearnet',
         'hyperparameters': {
+            # 'boost_negative_use_ratio': [0.1, 0.2, 0.3, 0.5, 0.9],
+            # 'boost_negative_use_ratio': [0.9],
             'boost_negative_use_ratio': [0.1, 0.2, 0.3, 0.5, 0.9],
             'boost_mask_positive': [False, True],
         }
     },
     'esm-t33-gearnet-pretrained-resiboost': {
-        'ensemble_count': 5,
+        'ensemble_count': 10,
         'model_ref': 'esm-t33-gearnet-pretrained',
         'hyperparameters': {
-            'boost_negative_use_ratio': [0.1, 0.2, 0.3, 0.5, 0.9],
+            # 'boost_negative_use_ratio': [0.1, 0.2, 0.3, 0.5, 0.9],
+            'boost_negative_use_ratio': [0.9],
             'boost_mask_positive': [False, True],
         }
     },

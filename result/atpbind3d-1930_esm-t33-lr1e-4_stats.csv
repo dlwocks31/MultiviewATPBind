@@ -1,0 +1,2 @@
+model_key,valid_fold,mcc,micro_auprc,sensitivity,precision,micro_auroc,valid_mcc,best_threshold,hp_combination,finished_at
+esm-t33-lr1e-4,0,0.6728,0.7001,0.5712,0.8209,0.9342,0.8131,0.0,0,2024-09-30 06:07:56
