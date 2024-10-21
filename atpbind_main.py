@@ -337,9 +337,9 @@ ALL_PARAMS = {
         'model_ref': 'esm-t33-gearnet',
         'hyperparameters': {
             # 'boost_negative_use_ratio': [0.1, 0.2, 0.3, 0.5, 0.9],
-            # 'boost_negative_use_ratio': [0.9],
-            'boost_negative_use_ratio': [0.1, 0.2, 0.3, 0.5, 0.9],
-            'boost_mask_positive': [False, True],
+            # 'boost_mask_positive': [False, True],
+            'boost_negative_use_ratio': [0.1],
+            'boost_mask_positive': [False],
         }
     },
     'esm-t33-gearnet-pretrained-resiboost': {
